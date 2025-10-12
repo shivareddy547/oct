@@ -10,7 +10,8 @@
 # Ignore all environment files.
 /.env*
 /.idea/*
-
+/.idea/vcs.xml
+/.idea
 # Ignore all logfiles and tempfiles.
 /log/*
 /tmp/*
