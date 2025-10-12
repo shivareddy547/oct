@@ -47,6 +47,26 @@ bundle install
 # Ensure Redis is running
 sudo systemctl restart redis
 
+# Redirect ports 80 and 443 to 3000 (for public access)
+sudo iptables -t nat -I PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports 3000
+sudo iptables -t nat -I PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports 3000
+sudo iptables --flush
+
+# Set application host environment variable
+export APPLICATION_HOST="https://$EC2_INSTANCE_IP"
+# bin/dev &
+
+# Use ngrok to expose port 3000 (ensure ngrok is installed on your server)
+ngrok http --url=awfully-quick-monkfish.ngrok-free.app 3000 &
+
+rm -rf tmp/
+bundle exec rails s -b 0.0.0.0 &
+
+# Start the application using foreman (bin/dev)
+
+
+
+
 #!/bin/bash
 
 # ============================
@@ -81,14 +101,18 @@ if ! sudo iptables -L INPUT -n | grep -q "$RAILS_PORT"; then
   sudo iptables -A INPUT -p tcp --dport $REACT_PORT -j ACCEPT
   sudo iptables -A INPUT -p tcp --dport $PYTHON_PORT -j ACCEPT
 
-  # Optional: redirect 80/443 → Rails
-  sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports $RAILS_PORT
-  sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports $RAILS_PORT
+
+
+#  # Optional: redirect 80/443 → Rails
+  sudo iptables -t nat -A PREROUTING -p tcp --dport 80 -j REDIRECT --to-ports $PYTHON_PORT
+#  sudo iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-ports $RAILS_PORT
 
   sudo iptables-save
 else
   echo "✅ iptables already configured (skipping reconfiguration)"
 fi
+
+
 
 # ============================
 # START SERVICES
@@ -97,7 +121,7 @@ fi
 # Kill any old processes
 echo "🧹 Cleaning up old processes..."
 pkill -f "rails s" || true
-pkill -f "npm start" || true
+pkill -f "npm start:4000" || true
 pkill -f "python3" || true
 
 # Start Rails API
@@ -109,7 +133,8 @@ bundle exec rails s -p $RAILS_PORT -b 0.0.0.0 &
 # Start React app
 echo "🚀 Starting React app on port $REACT_PORT..."
 cd "$REACT_PATH" || exit
-npm start -- --port $REACT_PORT &
+npm install --silent
+PORT=4000 npm start &
 
 # Start Python UI script
 echo "🚀 Starting Python UI on port $PYTHON_PORT..."
@@ -126,6 +151,8 @@ echo "🌐 Access URLs:"
 echo "🔹 Rails API:   $APPLICATION_HOST:$RAILS_PORT"
 echo "🔹 React App:   $APPLICATION_HOST:$REACT_PORT"
 echo "🔹 Python UI:   $APPLICATION_HOST:$PYTHON_PORT"
+
+
 
 
 

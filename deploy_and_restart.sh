@@ -10,91 +10,117 @@ PROJECT_DIR="/home/opc/oct"
 BRANCH="main"
 
 # ============================
+# PROCESS CLEANUP
+# ============================
+echo "🧹 Stopping old processes..."
+
+# Kill Rails server
+if pgrep -f "rails s" > /dev/null; then
+  echo "Stopping existing Rails processes..."
+  pkill -9 -f "rails s"
+  sleep 1
+fi
+
+# Kill React dev server
+if pgrep -f "npm start" > /dev/null; then
+  echo "Stopping existing React processes..."
+  pkill -9 -f "npm start"
+  sleep 1
+fi
+
+# Kill Python server
+if pgrep -f "python3" > /dev/null; then
+  echo "Stopping existing Python processes..."
+  pkill -9 -f "python3"
+  sleep 1
+fi
+
+echo "✅ All old processes stopped."
+
+# ============================
 # DEPLOY SCRIPT
 # ============================
-ssh -i "$KEY_PATH" opc@"$SERVER_IP" bash -s <<EOF
-  set -e
+ssh -i "$KEY_PATH" opc@"$SERVER_IP" bash -s <<'EOF'
+set -e
 
-  echo "🔁 Updating code on server..."
-  cd $PROJECT_DIR
+PROJECT_DIR="/home/opc/oct"
+REACT_PATH="$PROJECT_DIR/my-blue-app"
+RAILS_PATH="$PROJECT_DIR/my_api_app"
+PYTHON_SCRIPT="$PROJECT_DIR/multi_agent_ai.py"
 
-  if [ ! -d ".git" ]; then
-    echo "🧩 Cloning repository fresh..."
-    git clone $REPO_URL .
+RAILS_PORT=3000
+REACT_PORT=4000
+PYTHON_PORT=5000
+
+PUBLIC_IP=$(curl -s ifconfig.me)
+export APPLICATION_HOST="http://$PUBLIC_IP"
+
+echo "🌐 Server IP: $PUBLIC_IP"
+
+# ============================
+# CLEANUP OLD PROCESSES
+# ============================
+echo "🧹 Killing any processes using ports $RAILS_PORT, $REACT_PORT, $PYTHON_PORT..."
+
+for PORT in $RAILS_PORT $REACT_PORT $PYTHON_PORT; do
+  PIDS=$(sudo lsof -t -i tcp:$PORT || true)
+  if [ -n "$PIDS" ]; then
+    echo "Killing processes on port $PORT: $PIDS"
+    sudo kill -9 $PIDS
   fi
+done
 
-  echo "📦 Pulling latest code..."
-  git fetch origin $BRANCH
-  git reset --hard origin/$BRANCH
+sleep 1
 
-  echo "✅ Code updated successfully!"
+# ============================
+# UPDATE CODE
+# ============================
+cd "$PROJECT_DIR"
+if [ ! -d ".git" ]; then
+  git clone "git@github.com:shivareddy547/oct.git" .
+fi
+git fetch origin main
+git reset --hard origin/main
+echo "✅ Code updated successfully!"
 
-  # ============================
-  # RESTART ALL SERVICES
-  # ============================
+# ============================
+# START SERVICES
+# ============================
 
-  REACT_PORT=4000
-  RAILS_PORT=3000
-  PYTHON_PORT=5000
+# Rails
+echo "🚀 Starting Rails API..."
+cd "$RAILS_PATH"
+rm -rf tmp/
+bundle install --quiet
+rails db:migrate
+bundle exec rails s -p $RAILS_PORT -b 0.0.0.0 &
 
-  REACT_PATH="$PROJECT_DIR/my-blue-app"
-  RAILS_PATH="$PROJECT_DIR/my_api_app"
-  PYTHON_SCRIPT="$PROJECT_DIR/multi_agent_ai.py"
+# React
+echo "🚀 Starting React app..."
+cd "$REACT_PATH"
+npm install --silent
+nohup npm start -- --port $REACT_PORT > react.log 2>&1 &
 
-  PUBLIC_IP=\$(curl -s ifconfig.me)
-  export APPLICATION_HOST="http://\$PUBLIC_IP"
+# Python
+echo "🚀 Starting Python UI..."
+cd "$(dirname "$PYTHON_SCRIPT")"
+# Replace <project_path_here> with actual project paths your script expects
+nohup python3 "$PYTHON_SCRIPT" --port $PYTHON_PORT /home/opc/oct &
 
-  echo "🌐 Server IP: \$PUBLIC_IP"
-  echo "React:  \$APPLICATION_HOST:\$REACT_PORT"
-  echo "Rails:  \$APPLICATION_HOST:\$RAILS_PORT"
-  echo "Python: \$APPLICATION_HOST:\$PYTHON_PORT"
+# ============================
+# IPTABLES
+# ============================
+if ! sudo iptables -L INPUT -n | grep -q "$RAILS_PORT"; then
+  echo "🔧 Setting up iptables..."
+  sudo iptables -A INPUT -p tcp --dport $RAILS_PORT -j ACCEPT
+  sudo iptables -A INPUT -p tcp --dport $REACT_PORT -j ACCEPT
+  sudo iptables -A INPUT -p tcp --dport $PYTHON_PORT -j ACCEPT
+  sudo iptables-save
+fi
 
-  # ============================
-  # PROCESS CLEANUP
-  # ============================
-  echo "🧹 Stopping old processes..."
-  pkill -f "rails s" || true
-  pkill -f "npm start" || true
-  pkill -f "python3" || true
-
-  # ============================
-  # START RAILS
-  # ============================
-  echo "🚀 Starting Rails API..."
-  cd "\$RAILS_PATH"
-  rm -rf tmp/
-  bundle install --quiet
-  bundle exec rails s -p \$RAILS_PORT -b 0.0.0.0 &
-
-  # ============================
-  # START REACT
-  # ============================
-  echo "🚀 Starting React app..."
-  cd "\$REACT_PATH"
-  npm install --silent
-  npm start -- --port \$REACT_PORT &
-
-  # ============================
-  # START PYTHON
-  # ============================
-  echo "🚀 Starting Python UI..."
-  cd "\$(dirname "\$PYTHON_SCRIPT")"
-  python3 "\$PYTHON_SCRIPT" --port \$PYTHON_PORT &
-
-  # ============================
-  # IPTABLES (only if needed)
-  # ============================
-  if ! sudo iptables -L INPUT -n | grep -q "\$RAILS_PORT"; then
-    echo "🔧 Setting up iptables..."
-    sudo iptables -A INPUT -p tcp --dport \$RAILS_PORT -j ACCEPT
-    sudo iptables -A INPUT -p tcp --dport \$REACT_PORT -j ACCEPT
-    sudo iptables -A INPUT -p tcp --dport \$PYTHON_PORT -j ACCEPT
-    sudo iptables-save
-  fi
-
-  echo ""
-  echo "✅ All apps restarted successfully!"
-  echo "Rails:  \$APPLICATION_HOST:\$RAILS_PORT"
-  echo "React:  \$APPLICATION_HOST:\$REACT_PORT"
-  echo "Python: \$APPLICATION_HOST:\$PYTHON_PORT"
+echo ""
+echo "✅ All apps restarted successfully!"
+echo "Rails:  $APPLICATION_HOST:$RAILS_PORT"
+echo "React:  $APPLICATION_HOST:$REACT_PORT"
+echo "Python: $APPLICATION_HOST:$PYTHON_PORT"
 EOF
