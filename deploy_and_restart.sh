@@ -70,7 +70,7 @@ for PORT in $RAILS_PORT $REACT_PORT $PYTHON_PORT; do
   fi
 done
 
-sleep 1
+
 
 # ============================
 # UPDATE CODE
@@ -94,13 +94,16 @@ rm -rf tmp/
 bundle install --quiet
 rails db:migrate
 bundle exec rails s -p $RAILS_PORT -b 0.0.0.0 &
-
+sleep 3
 # React
-echo "🚀 Starting React app..."
-cd "$REACT_PATH"
+echo "🚀 Starting React app on port $REACT_PORT..."
+cd "$REACT_PATH" || exit
 npm install --silent
-nohup npm start -- --port $REACT_PORT > react.log 2>&1 &
+nohup bash -c "PORT=$REACT_PORT npm start -- --host 0.0.0.0" > ~/react.log 2>&1 &
+sleep 5
+echo "✅ React started on port $REACT_PORT"
 
+sleep 10
 # Python
 echo "🚀 Starting Python UI..."
 cd "$(dirname "$PYTHON_SCRIPT")"
