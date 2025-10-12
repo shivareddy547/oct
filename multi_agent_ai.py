@@ -935,55 +935,89 @@ packages:
 install_commands:
   - "echo 'No additional packages required'"'''
 
-    def validate_and_complete_yaml(self, yaml_content: str) -> str:
-        """Validate YAML and ensure all required sections are present"""
-        try:
-            data = yaml.safe_load(yaml_content)
+    def fix_yaml_format(yaml_text: str) -> str:
+            """
+            Cleans and validates a YAML response (e.g., from an LLM),
+            ensuring it is properly formatted and parseable.
+            Returns corrected YAML as a string.
+            """
+            try:
+                # Step 1: Try to safely parse YAML
+                parsed_yaml: Any = yaml.safe_load(yaml_text)
 
-            # Ensure projects section exists
-            if 'projects' not in data:
+                # Step 2: Convert it back to a clean YAML string
+                fixed_yaml: str = yaml.dump(
+                    parsed_yaml,
+                    sort_keys=False,      # preserve order
+                    allow_unicode=True,   # support unicode
+                    default_flow_style=False,  # use block style
+                    indent=2              # standard 2-space indentation
+                )
+
+                return fixed_yaml
+
+            except yaml.YAMLError as e:
+                raise ValueError(f"Invalid YAML input: {e}")
+    import yaml
+    import re
+
+    def validate_and_complete_yaml(self, yaml_content: str) -> str:
+        """Validate YAML and ensure all required sections are present, repairing malformed YAML if needed."""
+        try:
+            # Step 1: Clean common YAML issues before parsing
+            yaml_content = yaml_content.strip()
+            yaml_content = re.sub(r'```(?:yaml)?|```', '', yaml_content)  # remove markdown fences
+            yaml_content = re.sub(r'\t', '  ', yaml_content)  # replace tabs with spaces
+            yaml_content = yaml_content.replace('\r\n', '\n')  # normalize line endings
+
+            # Try to parse YAML safely
+            try:
+                data = yaml.safe_load(yaml_content)
+                if not isinstance(data, dict):
+                    raise ValueError("Parsed YAML is not a dict")
+            except Exception as e:
+                # Try one more time — fix unescaped colons or malformed indentation
+                fixed_yaml = re.sub(r'^(\s*\w+):(\S)', r'\1: \2', yaml_content, flags=re.MULTILINE)
+                data = yaml.safe_load(fixed_yaml) or {}
+
+            # Ensure top-level keys
+            if 'projects' not in data or not isinstance(data['projects'], list):
                 data['projects'] = [{
                     'project_path': self.project_paths[0],
                     'project_type': 'unknown',
                     'files': []
                 }]
 
-            # Ensure packages section exists with proper structure
-            if 'packages' not in data:
-                data['packages'] = {
-                    'react_dependencies': [],
-                    'react_devDependencies': [],
-                    'rails_gems': []
-                }
-            else:
-                if 'react_dependencies' not in data['packages']:
-                    data['packages']['react_dependencies'] = []
-                if 'react_devDependencies' not in data['packages']:
-                    data['packages']['react_devDependencies'] = []
-                if 'rails_gems' not in data['packages']:
-                    data['packages']['rails_gems'] = []
+            # Ensure packages structure
+            packages = data.get('packages', {})
+            if not isinstance(packages, dict):
+                packages = {}
+            packages.setdefault('react_dependencies', [])
+            packages.setdefault('react_devDependencies', [])
+            packages.setdefault('rails_gems', [])
+            data['packages'] = packages
 
-            # Ensure install_commands section exists
-            if 'install_commands' not in data:
+            # Ensure install_commands section
+            if 'install_commands' not in data or not isinstance(data['install_commands'], list):
                 data['install_commands'] = []
 
-                # Generate install commands from packages if not provided
-                react_deps = data['packages']['react_dependencies']
-                react_dev_deps = data['packages']['react_devDependencies']
-                rails_gems = data['packages']['rails_gems']
+            # Auto-generate install commands if empty
+            if not data['install_commands']:
+                react_deps = packages.get('react_dependencies', [])
+                react_dev_deps = packages.get('react_devDependencies', [])
+                rails_gems = packages.get('rails_gems', [])
 
-                # Find project paths for each type
-                print(self.project_paths)
-                print(2222222222222222222222)
-                react_projects = [p for p in self.project_paths if 'react' in p.lower() or not any('rails' in rp.lower() for rp in self.project_paths)]
+                react_projects = [p for p in self.project_paths if 'react' in p.lower()]
                 rails_projects = [p for p in self.project_paths if 'rails' in p.lower()]
 
                 if react_deps and react_projects:
                     for project in react_projects:
                         data['install_commands'].append(f"cd {project} && npm install {' '.join(react_deps)}")
+
                 if react_dev_deps and react_projects:
                     for project in react_projects:
                         data['install_commands'].append(f"cd {project} && npm install --save-dev {' '.join(react_dev_deps)}")
+
                 if rails_gems and rails_projects:
                     for project in rails_projects:
                         for gem in rails_gems:
@@ -993,26 +1027,36 @@ install_commands:
                 if not react_deps and not react_dev_deps and not rails_gems:
                     data['install_commands'].append("echo 'No additional packages required'")
 
-            return yaml.dump(data, default_flow_style=False, indent=2, allow_unicode=True, width=1000)
+            # Return clean formatted YAML
+            return yaml.dump(
+                data,
+                sort_keys=False,
+                default_flow_style=False,
+                indent=2,
+                allow_unicode=True,
+                width=1000
+            )
 
-        except yaml.YAMLError as e:
-            # Return a basic valid YAML structure with the error
+        except Exception as e:
+            # Return fallback YAML on any parsing error
             return f'''projects:
-  - project_path: "{self.project_paths[0]}"
-    project_type: "unknown"
-    files:
-      - path: "error.txt"
-        content: |
-          Invalid YAML response: {e}
-          Original response: {yaml_content}
+      - project_path: "{getattr(self, 'project_paths', ['unknown'])[0]}"
+        project_type: "unknown"
+        files:
+          - path: "error.txt"
+            content: |
+              Failed to parse or complete YAML: {e}
+              Original content:
+              {yaml_content}
 
-packages:
-  react_dependencies: []
-  react_devDependencies: []
-  rails_gems: []
+    packages:
+      react_dependencies: []
+      react_devDependencies: []
+      rails_gems: []
 
-install_commands:
-  - "echo 'Error in YAML generation'"'''
+    install_commands:
+      - "echo 'Error in YAML generation or parsing'"'''
+
 
     def apply_changes(self, yaml_response: str) -> Dict:
         """Apply changes from LLM YAML response to project files."""
@@ -1059,6 +1103,8 @@ install_commands:
                         base_name = os.path.basename(file_path)
                         base_name = re.sub(r'^\d+_', '', base_name)
                         base_name = re.sub(r'[^a-z0-9_]', '_', base_name.lower())
+                        if not base_name.endswith('.rb'):
+                                base_name += '.rb'
                         full_path = os.path.join(project_path, "db/migrate", f"{timestamp}_{base_name}")
                     else:
                         full_path = os.path.join(project_path, file_path)
@@ -1117,6 +1163,7 @@ install_commands:
 
         # Validate and complete the YAML structure
         final_yaml = self.validate_and_complete_yaml(yaml_response)
+#         final_yaml = yaml_response
 
         # Store conversation in PostgreSQL
         conversation_id = self.db.store_conversation(session_id, query, final_yaml, self.project_paths)
@@ -1127,6 +1174,12 @@ install_commands:
             print(f"✅ Successfully stored conversation with ID: {conversation_id}")
 
         return final_yaml
+
+    import yaml
+    from typing import Any
+
+
+
 
     def get_project_info(self) -> Dict:
         """Get project information for all projects"""
@@ -1774,6 +1827,7 @@ class MultiProjectAIChatbotWebUI:
             if (conversationId) {
                 messageDiv.setAttribute('data-conversation-id', conversationId);
             }
+            console.log(content)
 
             if (isYaml) {
                 const formattedYaml = formatYAML(content);
@@ -2118,6 +2172,8 @@ class MultiProjectAIChatbotWebUI:
 
         socket.on('assistant_response', function(data) {
             hideTypingIndicator();
+            console.log(66666666666)
+            console.log(data)
             currentYamlResponse = data.yaml_response;
             selectedConversationId = null; // Reset for new conversation
             addMessage('assistant', data.yaml_response, true);
