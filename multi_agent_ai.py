@@ -1060,17 +1060,20 @@ install_commands:
                             # FIX: Use the determined project path
                             #full_path = os.path.join(project_path, file_path)
                             if "db/migrate/" in file_path:
+                                # Generate unique timestamp
                                 timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                                 base_name = os.path.basename(file_path)
 
-                                # Remove leading digits and underscores from filename (like 001_)
-                                base_name = re.sub(r'^\d+_', '', base_name)
+                                # Remove leading digits/underscores (like 001_) and sanitize
+                                base_name = re.sub(r'^\d+_', '', base_name)            # Remove leading numbers
+                                base_name = re.sub(r'[^a-z0-9_]', '_', base_name.lower())  # Only lowercase letters, numbers, underscores
 
-                                # Rebuild path with unique timestamp
+                                # Combine timestamp with sanitized base name
                                 new_file_name = f"{timestamp}_{base_name}"
                                 full_path = os.path.join(project_path, "db/migrate", new_file_name)
                             else:
                                 full_path = os.path.join(project_path, file_path)
+
 
                             try:
                                 # Create directory if it doesn't exist

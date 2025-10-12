@@ -36,7 +36,7 @@ if pgrep -f "python3" > /dev/null; then
 fi
 
 echo "✅ All old processes stopped."
-
+redis-cli FLUSHALL
 # ============================
 # DEPLOY SCRIPT
 # ============================
@@ -108,7 +108,9 @@ sleep 10
 echo "🚀 Starting Python UI..."
 cd "$(dirname "$PYTHON_SCRIPT")"
 # Replace <project_path_here> with actual project paths your script expects
-nohup python3 "$PYTHON_SCRIPT" --port $PYTHON_PORT /home/opc/oct &
+#nohup python3 "$PYTHON_SCRIPT" --port $PYTHON_PORT /home/opc/oct &
+nohup python3 "$PYTHON_SCRIPT" --port $PYTHON_PORT "$REACT_PATH" "$RAILS_PATH"  &
+
 
 # ============================
 # IPTABLES
