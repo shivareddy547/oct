@@ -23,7 +23,7 @@ from difflib import SequenceMatcher
 class MultiProjectFileFinder:
     def __init__(self, project_roots: List[str]):
         self.project_roots = project_roots
-        self.react_extensions = (".js", ".jsx", ".ts", ".tsx", ".css", ".scss", ".json", ".html")
+        self.react_extensions = (".jsx", ".ts", ".tsx", ".css", ".scss", ".json", ".html")
         self.rails_extensions = (".rb", ".erb", ".haml", ".slim", ".yml", ".yaml", ".json", ".js", ".css", ".scss", ".coffee", ".html")
 
     def get_project_type(self, file_path: str) -> str:
@@ -848,6 +848,7 @@ Rules:
 15. If creating API endpoints in Rails, ensure they work with React frontend
 16. For database changes in Rails, include migration files if needed
 17. For Rails: we dont have authentication so just create apis without any authentication changes
+18: For Rails API please always follow api/v1/* paths
 
 Do not include any explanations, analysis, or text outside the YAML format."""
 
