@@ -1722,14 +1722,20 @@ class MultiProjectAIChatbotWebUI:
         </div>
 
         <div class="results-panel">
-            <h3>Projects Info</h3>
+            <div class="projects-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+                <h3>Projects Info</h3>
+                <button class="rollback-button" onclick="rollbackChanges()">Rollback</button>
+            </div>
+
             <div id="project-info">
                 <div class="file-item">Loading project information...</div>
             </div>
+
             <h3>Recent Changes</h3>
             <div id="recent-changes">
                 <div class="file-item">No changes yet</div>
             </div>
+
             <h3>Chat History</h3>
             <div class="history-container" id="history-container">
                 <div id="chat-history">
@@ -1927,20 +1933,34 @@ class MultiProjectAIChatbotWebUI:
         }
 
         function loadResponseToChat(conversationId, query, yamlResponse) {
-            // Clear current chat
-            chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
+            try {
+                // Clear current chat
+                chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
 
-            // Add the conversation to chat
-            addMessage('user', query, false, conversationId);
-            if (yamlResponse && yamlResponse !== 'No YAML response') {
-                addMessage('assistant', yamlResponse, true, conversationId);
-                currentYamlResponse = yamlResponse;
-            } else {
-                addMessage('assistant', 'No YAML response available', false, conversationId);
+                // Decode the parameters
+                const decodedQuery = query ? decodeURIComponent(query) : '';
+                const decodedYaml = yamlResponse && yamlResponse !== 'No YAML response' ?
+                    decodeURIComponent(yamlResponse) : '';
+
+                // Add the user query
+                if(decodedQuery) {
+                    addMessage('user', decodedQuery, false, conversationId);
+                }
+
+                // Add the assistant response
+                if(decodedYaml) {
+                    addMessage('assistant', decodedYaml, true, conversationId);
+                    currentYamlResponse = decodedYaml;
+                } else {
+                    addMessage('assistant', 'No YAML response available', false, conversationId);
+                }
+
+                selectedConversationId = conversationId;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (error) {
+                console.error('Error loading chat from history:', error);
+                addMessage('system', 'Error loading conversation from history');
             }
-
-            selectedConversationId = conversationId;
-            chatMessages.scrollTop = chatMessages.scrollHeight;
         }
 
         function updateProjectInfo(info) {
@@ -2002,21 +2022,18 @@ class MultiProjectAIChatbotWebUI:
                     const shortYaml = conv.yaml_response && conv.yaml_response.length > 100 ?
                         conv.yaml_response.substring(0, 100) + '...' : conv.yaml_response || 'No YAML response';
 
-                    // Escape quotes for JavaScript
-                    const escapedQuery = (conv.query || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
-                    const escapedYaml = (conv.yaml_response || '').replace(/'/g, "\\'").replace(/"/g, '\\"');
-
                     historyHTML += `
-                        <div class="history-item" data-conversation-id="${conv.id}">
+                        <div class="history-item"
+                             data-conversation-id="${conv.id}"
+                             data-query="${escapeHtml(conv.query || '')}"
+                             data-yaml="${escapeHtml(conv.yaml_response || '')}">
                             <strong>${date}</strong><br>
                             <strong>Q:</strong> ${shortQuery}<br>
                             <strong>A:</strong> ${shortYaml}
-                            <div class="history-yaml">${conv.yaml_response || 'No YAML response'}</div>
                             <div class="history-actions">
-                                <button class="load-chat-btn" onclick="loadResponseToChat(${conv.id}, '${escapedQuery}', '${escapedYaml}')">Load in Chat</button>
-                                <button class="apply-history-btn" onclick="applyHistoryChanges(${conv.id}, '${escapedYaml}')">Apply Changes</button>
-                                <button class="save-history-btn" onclick="saveHistoryChanges(${conv.id}, '${escapedYaml}')">Save Changes</button>
-                                <button class="load-response-btn" onclick="loadResponseToChat(${conv.id}, '${escapedQuery}', '${escapedYaml}')">Load Response</button>
+                                <button class="load-chat-btn" onclick="loadResponseToChatFromData(this)">Load in Chat</button>
+                                <button class="apply-history-btn" onclick="applyHistoryChangesFromData(this)">Apply Changes</button>
+                                <button class="save-history-btn" onclick="saveHistoryChangesFromData(this)">Save Changes</button>
                                 <button class="rollback-history-btn" onclick="rollbackHistoryChanges()">Rollback</button>
                             </div>
                         </div>
@@ -2026,6 +2043,104 @@ class MultiProjectAIChatbotWebUI:
                 chatHistory.innerHTML = historyHTML;
             } else {
                 chatHistory.innerHTML = '<div class="file-item">No history yet</div>';
+            }
+        }
+
+        // HTML escaping function
+        function escapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+        }
+
+        // Safe data extraction from attributes
+        function getConversationData(button) {
+            const historyItem = button.closest('.history-item');
+            const conversationId = historyItem.getAttribute('data-conversation-id');
+            const query = historyItem.getAttribute('data-query');
+            const yamlResponse = historyItem.getAttribute('data-yaml');
+
+            // Unescape HTML entities
+            const unescapedQuery = unescapeHtml(query);
+            const unescapedYaml = unescapeHtml(yamlResponse);
+
+            return {
+                conversationId: conversationId,
+                query: unescapedQuery,
+                yamlResponse: unescapedYaml
+            };
+        }
+
+        function unescapeHtml(text) {
+            if (!text) return '';
+            const div = document.createElement('div');
+            div.innerHTML = text;
+            return div.textContent;
+        }
+
+        // Updated handler functions
+        function loadResponseToChatFromData(button) {
+            const data = getConversationData(button);
+            loadResponseToChat(data.conversationId, data.query, data.yamlResponse);
+        }
+
+        function applyHistoryChangesFromData(button) {
+            const data = getConversationData(button);
+            applyHistoryChanges(data.conversationId, data.yamlResponse);
+        }
+
+        function saveHistoryChangesFromData(button) {
+            const data = getConversationData(button);
+            saveHistoryChanges(data.conversationId, data.yamlResponse);
+        }
+
+        // Make the original functions more robust
+        function loadResponseToChat(conversationId, query, yamlResponse) {
+            try {
+                // Clear current chat
+                chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
+
+                // Add the user query
+                if(query && query !== 'null' && query !== 'undefined') {
+                    addMessage('user', query, false, conversationId);
+                }
+
+                // Add the assistant response
+                if(yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+                    addMessage('assistant', yamlResponse, true, conversationId);
+                    currentYamlResponse = yamlResponse;
+                } else {
+                    addMessage('assistant', 'No YAML response available', false, conversationId);
+                }
+
+                selectedConversationId = conversationId;
+                chatMessages.scrollTop = chatMessages.scrollHeight;
+            } catch (error) {
+                console.error('Error loading chat from history:', error);
+                addMessage('system', 'Error loading conversation from history: ' + error.message);
+            }
+        }
+
+        function applyHistoryChanges(conversationId, yamlResponse) {
+            if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+                socket.emit('apply_changes', {
+                    yaml_response: yamlResponse,
+                    conversation_id: conversationId
+                });
+            } else {
+                alert('No valid YAML response found for this conversation');
+            }
+        }
+
+        function saveHistoryChanges(conversationId, yamlResponse) {
+            if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+                socket.emit('save_changes', {
+                    yaml_response: yamlResponse,
+                    conversation_id: conversationId
+                });
+            } else {
+                alert('No valid YAML response found for this conversation');
             }
         }
 
