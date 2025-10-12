@@ -2377,7 +2377,7 @@ class MultiProjectAIChatbotWebUI:
             thread.start()
 
         @self.socketio.on('rollback_changes')
-        def handle_rollback_changes(data):
+        def handle_rollback_changes(data=None):
             @copy_current_request_context
             def rollback_changes_thread():
                 try:
