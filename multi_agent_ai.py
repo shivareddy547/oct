@@ -2276,8 +2276,39 @@ class MultiProjectAIChatbotWebUI:
 
                     for project_path in self.assistant.project_paths:
                         try:
+                            # Rollback Rails migrations if any migrations have been applied
+                            migrate_dir = os.path.join(project_path, 'db', 'migrate')
+                            if os.path.exists(migrate_dir) and any(os.scandir(migrate_dir)):
+                                # Get the number of applied migrations
+                                result = subprocess.run(
+                                    ['rails', 'db:migrate:status'],
+                                    cwd=project_path,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=60
+                                )
+                                applied_migrations = [
+                                    line for line in result.stdout.splitlines()
+                                    if line.strip().startswith('up')
+                                ]
+                                if applied_migrations:
+                                    steps = len(applied_migrations)
+                                    rollback_result = subprocess.run(
+                                        ['rails', 'db:rollback', f'STEP={steps}'],
+                                        cwd=project_path,
+                                        capture_output=True,
+                                        text=True,
+                                        timeout=60
+                                    )
+                                    results['commands_run'].append(f'Rolled back {steps} migrations in {os.path.basename(project_path)}')
+                                    results['rollback_results'][project_path] = {
+                                        'rollback': rollback_result.stdout if rollback_result.returncode == 0 else rollback_result.stderr
+                                    }
+                                else:
+                                    results['rollback_results'][project_path] = {'rollback': 'No migrations applied'}
+
                             # Git checkout - revert all changes
-                            result = subprocess.run(
+                            git_checkout = subprocess.run(
                                 ['git', 'checkout', '.'],
                                 cwd=project_path,
                                 capture_output=True,
@@ -2287,23 +2318,19 @@ class MultiProjectAIChatbotWebUI:
                             results['commands_run'].append(f'git checkout . in {os.path.basename(project_path)}')
 
                             # Git clean - remove untracked files
-                            result = subprocess.run(
-                                ['git', 'clean', '-f'],
+                            git_clean = subprocess.run(
+                                ['git', 'clean', '-xfd'],
                                 cwd=project_path,
                                 capture_output=True,
                                 text=True,
                                 timeout=30
                             )
-                            results['commands_run'].append(f'git clean -f in {os.path.basename(project_path)}')
-
-                            results['rollback_results'][project_path] = {
-                                'checkout': result.stdout if result.returncode == 0 else result.stderr,
-                                'clean': result.stdout if result.returncode == 0 else result.stderr
-                            }
+                            results['commands_run'].append(f'git clean -xfd in {os.path.basename(project_path)}')
 
                         except Exception as e:
                             results['rollback_results'][project_path] = {'error': str(e)}
                             print(f"❌ Error during rollback in {project_path}: {e}")
+
 
                     # Update Redis cache after rollback
                     self.assistant.redis_manager.store_project_structure(self.assistant.project_paths, self.assistant.project_id)
