@@ -21,7 +21,7 @@ const ContactForm = () => {
     setIsSubmitting(true);
     
     try {
-      const response = await fetch('http://152.67.5.153/api/contacts', {
+      const response = await fetch('http://localhost:3000/api/contacts', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
