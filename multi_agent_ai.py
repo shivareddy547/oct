@@ -2454,62 +2454,36 @@ class MultiProjectAIChatbotWebUI:
                 results = {}
 
                 try:
-                    print("🔄 Restarting Rails and React servers...")
+                    print("🔄 Executing restart_servers.sh script...")
 
-                    for project_path in self.assistant.project_paths:
-                        try:
-                            project_name = os.path.basename(project_path)
+                    # Run the shell script
+                    restart = subprocess.run(
+                        ['/bin/bash', '/home/opc/ai/restart_servers.sh'],
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # adjust if your script takes longer
+                    )
 
-                            # Restart Rails if backend project
-                            if os.path.exists(os.path.join(project_path, 'config', 'application.rb')):
-                                print(f"🛑 Stopping existing Rails processes in {project_name}...")
-                                subprocess.run("pkill -9 -f 'rails s'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                                time.sleep(1)
+                    # Capture stdout/stderr
+                    results['stdout'] = restart.stdout
+                    results['stderr'] = restart.stderr
+                    results['status'] = "script executed successfully" if restart.returncode == 0 else f"script failed with code {restart.returncode}"
 
-                                print(f"🚀 Starting Rails server in {project_name} on port 3000...")
-                                subprocess.Popen(
-                                    ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0'],
-                                    cwd=project_path
-                                )
-                                results[f"{project_name}_Rails"] = "restarted successfully"
-                                time.sleep(3)
-
-                            # Restart React if frontend project (detect by package.json without config/application.rb)
-                            elif os.path.exists(os.path.join(project_path, 'package.json')):
-                                print(f"🛑 Stopping existing React processes in {project_name}...")
-                                subprocess.run("pkill -9 -f 'npm start'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                                time.sleep(1)
-
-                                print(f"🚀 Starting React app in {project_name} on port 4000...")
-                                subprocess.Popen(
-                                    f"nohup bash -c 'PORT=4000 npm start -- --host 0.0.0.0' > ~/react_{project_name}.log 2>&1 &",
-                                    cwd=project_path,
-                                    shell=True
-                                )
-                                results[f"{project_name}_React"] = "restarted successfully"
-                                time.sleep(5)
-
-                        except Exception as e:
-                            results[project_path] = {'error': str(e)}
-                            print(f"❌ Error restarting servers in {project_path}: {e}")
-
-                    # Flush Redis after restarting
-                    try:
-                        subprocess.run(["redis-cli", "FLUSHALL"], check=True)
-                        print("🧹 Redis cache flushed.")
-                    except Exception as e:
-                        print(f"❌ Error flushing Redis: {e}")
+                    print(restart.stdout)
+                    if restart.stderr:
+                        print(f"❌ {restart.stderr}")
 
                     emit('restart_servers_results', {'results': results, 'session_id': session_id}, room=session_id)
-                    print("✅ Rails and React servers restarted successfully.")
+                    print("✅ restart_servers.sh executed.")
 
                 except Exception as e:
-                    print(f"❌ Error during servers restart: {e}")
+                    print(f"❌ Error executing restart_servers.sh: {e}")
                     emit('error', {'error': str(e)}, room=session_id)
 
             thread = threading.Thread(target=restart_servers_thread)
             thread.daemon = True
             thread.start()
+
 
 
 
