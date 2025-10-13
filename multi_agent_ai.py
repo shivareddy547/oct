@@ -2442,32 +2442,44 @@ class MultiProjectAIChatbotWebUI:
                 try:
                     print("🔄 Restarting Rails and React servers...")
 
-                    for project in [
-                        {"name": "Rails", "command": f"bundle exec rails s -p 3000 -b 0.0.0.0", "path": self.RAILS_PATH, "kill_pattern": "rails s"},
-                        {"name": "React", "command": f"PORT=4000 npm start -- --host 0.0.0.0", "path": self.REACT_PATH, "kill_pattern": "npm start"}
-                    ]:
+                    for project_path in self.assistant.project_paths:
                         try:
-                            # Kill existing processes
-                            subprocess.run(f"pkill -9 -f '{project['kill_pattern']}'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-                            print(f"🛑 Stopped existing {project['name']} processes.")
-                            time.sleep(1)
+                            project_name = os.path.basename(project_path)
 
-                            # Start new process
-                            if project['name'] == "React":
-                                subprocess.Popen(f"nohup bash -c '{project['command']}' > ~/react.log 2>&1 &", cwd=project['path'], shell=True)
-                            else:
-                                subprocess.Popen(project['command'], cwd=project['path'], shell=True)
+                            # Restart Rails if backend project
+                            if os.path.exists(os.path.join(project_path, 'config', 'application.rb')):
+                                print(f"🛑 Stopping existing Rails processes in {project_name}...")
+                                subprocess.run("pkill -9 -f 'rails s'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                time.sleep(1)
 
-                            print(f"🚀 {project['name']} restarted.")
-                            results[project['name']] = "restarted successfully"
+                                print(f"🚀 Starting Rails server in {project_name} on port 3000...")
+                                subprocess.Popen(
+                                    ['bundle', 'exec', 'rails', 's', '-p', '3000', '-b', '0.0.0.0'],
+                                    cwd=project_path
+                                )
+                                results[f"{project_name}_Rails"] = "restarted successfully"
+                                time.sleep(3)
 
-                            time.sleep(3 if project['name'] == "Rails" else 5)
+                            # Restart React if frontend project (detect by package.json without config/application.rb)
+                            elif os.path.exists(os.path.join(project_path, 'package.json')):
+                                print(f"🛑 Stopping existing React processes in {project_name}...")
+                                subprocess.run("pkill -9 -f 'npm start'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                                time.sleep(1)
+
+                                print(f"🚀 Starting React app in {project_name} on port 4000...")
+                                subprocess.Popen(
+                                    f"nohup bash -c 'PORT=4000 npm start -- --host 0.0.0.0' > ~/react_{project_name}.log 2>&1 &",
+                                    cwd=project_path,
+                                    shell=True
+                                )
+                                results[f"{project_name}_React"] = "restarted successfully"
+                                time.sleep(5)
 
                         except Exception as e:
-                            results[project['name']] = {'error': str(e)}
-                            print(f"❌ Error restarting {project['name']}: {e}")
+                            results[project_path] = {'error': str(e)}
+                            print(f"❌ Error restarting servers in {project_path}: {e}")
 
-                    # Flush Redis
+                    # Flush Redis after restarting
                     try:
                         subprocess.run(["redis-cli", "FLUSHALL"], check=True)
                         print("🧹 Redis cache flushed.")
@@ -2484,6 +2496,8 @@ class MultiProjectAIChatbotWebUI:
             thread = threading.Thread(target=restart_servers_thread)
             thread.daemon = True
             thread.start()
+
+
 
 
         @self.socketio.on('migration_changes')
