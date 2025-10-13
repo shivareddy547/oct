@@ -688,12 +688,32 @@ class MultiProjectRedisManager:
 class OllamaAnalyzer:
     def __init__(self, base_url="http://localhost:11434"):
         self.base_url = base_url
+        self.available_models = [
+            "gpt-oss:20b-cloud",
+            "gpt-oss:120b-cloud",
+            "deepseek-v3.1:671b-cloud",
+            "qwen3-coder:480b-cloud",
+            "kimi-k2:1t-cloud"
+        ]
         self.model = "qwen3-coder:480b-cloud"
+
+    def set_model(self, model_name: str):
+        """Set the model to use for analysis"""
+        if model_name in self.available_models:
+            self.model = model_name
+            print(f"✅ Model set to: {model_name}")
+        else:
+            print(f"⚠️  Model {model_name} not in available models. Using default: {self.model}")
+
+    def get_available_models(self) -> List[str]:
+        """Get list of available models"""
+        return self.available_models
 
     def auto_generate_file_changes(self, user_query: str, project_roots: List[str]):
         """Automatically generate file changes based on user query and multi-project context"""
         print(f"🎯 Auto-generating file changes for: '{user_query}'")
         print(f"📁 Projects: {project_roots}")
+        print(f"🤖 Using model: {self.model}")
 
         # Step 1: Analyze query intent and dynamically find relevant files across all projects
         finder = MultiProjectFileFinder(project_roots)
@@ -751,6 +771,7 @@ class OllamaAnalyzer:
         """Use Ollama to analyze projects and generate specific file changes for multiple projects"""
         print(f"Analyzing {len(project_roots)} projects for: {prompt}")
         print(f"Intent: Frontend: {intent['frontend']}, Backend: {intent['backend']}")
+        print(f"Using model: {self.model}")
         print(11111111111111111111)
         print(project_roots)
 
@@ -891,6 +912,14 @@ class MultiProjectAIAssistant:
 
         # Initialize PostgreSQL database
         self.db = PostgresDB(**(db_config or {}))
+
+    def set_model(self, model_name: str):
+        """Set the model for the Ollama analyzer"""
+        self.ollama.set_model(model_name)
+
+    def get_available_models(self) -> List[str]:
+        """Get list of available models"""
+        return self.ollama.get_available_models()
 
     def initialize_projects(self):
         """Initialize and store all projects in Redis"""
@@ -1107,6 +1136,7 @@ install_commands:
     def process_query(self, query: str, session_id: str = "default", use_auto_generate: bool = True) -> str:
         """Process user query and return YAML response"""
         print(f"🔄 Processing: {query}")
+        print(f"🤖 Using model: {self.ollama.model}")
 
         if use_auto_generate:
             # Use the new auto-generate approach with dynamic file finding across all projects
@@ -1401,6 +1431,28 @@ class MultiProjectAIChatbotWebUI:
             background: #6c757d;
             cursor: not-allowed;
         }
+        .model-selector {
+            margin-bottom: 15px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+        .model-selector label {
+            font-weight: bold;
+            color: #333;
+        }
+        .model-selector select {
+            padding: 8px 12px;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            background: white;
+            font-size: 14px;
+            min-width: 200px;
+        }
+        .model-selector select:focus {
+            outline: none;
+            border-color: #007bff;
+        }
         .action-buttons {
             display: flex;
             gap: 10px;
@@ -1670,6 +1722,16 @@ class MultiProjectAIChatbotWebUI:
                 </div>
             </div>
             <div class="input-area">
+                <div class="model-selector">
+                    <label for="model-select">Select Model:</label>
+                    <select id="model-select">
+                        <option value="gpt-oss:20b-cloud">gpt-oss:20b-cloud</option>
+                        <option value="gpt-oss:120b-cloud">gpt-oss:120b-cloud</option>
+                        <option value="deepseek-v3.1:671b-cloud">deepseek-v3.1:671b-cloud</option>
+                        <option value="qwen3-coder:480b-cloud" selected>qwen3-coder:480b-cloud</option>
+                        <option value="kimi-k2:1t-cloud">kimi-k2:1t-cloud</option>
+                    </select>
+                </div>
                 <div class="input-group">
                     <textarea
                         id="message-input"
@@ -1691,10 +1753,11 @@ class MultiProjectAIChatbotWebUI:
                 <div class="file-item">Loading project information...</div>
             </div>
 
-            <h3>Recent Changes</h3>
-            <div id="recent-changes">
-                <div class="file-item">No changes yet</div>
-            </div>
+            <h3>Actions</h3>
+               <button class="rollback-button" onclick="rollbackMigrationChanges()">Rollback db changes</button></br>
+                <button class="rollback-button" onclick="Migrations()">Db Migrate</button></br>
+                <button class="rollback-button" onclick="restartServers()">Restart all servers</button>
+
 
             <h3>Chat History</h3>
             <div class="history-container" id="history-container">
@@ -1715,6 +1778,7 @@ class MultiProjectAIChatbotWebUI:
         const chatMessages = document.getElementById('chat-messages');
         const messageInput = document.getElementById('message-input');
         const sendButton = document.getElementById('send-button');
+        const modelSelect = document.getElementById('model-select');
         const projectInfo = document.getElementById('project-info');
         const recentChanges = document.getElementById('recent-changes');
         const chatHistory = document.getElementById('chat-history');
@@ -1738,6 +1802,8 @@ class MultiProjectAIChatbotWebUI:
 
         function sendMessage() {
             const message = messageInput.value.trim();
+            const selectedModel = modelSelect.value;
+
             if (message) {
                 addMessage('user', message);
                 messageInput.value = '';
@@ -1746,12 +1812,16 @@ class MultiProjectAIChatbotWebUI:
                 // Show typing indicator
                 showTypingIndicator();
 
-                // Send to server
-                socket.emit('send_message', { message: message });
+                // Send to server with selected model
+                socket.emit('send_message', {
+                    message: message,
+                    model: selectedModel
+                });
 
                 // Disable input while processing
                 sendButton.disabled = true;
                 messageInput.disabled = true;
+                modelSelect.disabled = true;
             }
         }
 
@@ -1768,7 +1838,7 @@ class MultiProjectAIChatbotWebUI:
                 .replace(/#(.*)$/gm, '<span class="yaml-comment">#$1</span>');
         }
 
-        function addMessage(sender, content, isYaml = false, conversationId = null) {
+        function addMessage(sender, content, isYaml = false, conversationId = null, modelUsed = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
             if (conversationId) {
@@ -1779,10 +1849,10 @@ class MultiProjectAIChatbotWebUI:
                 const formattedYaml = formatYAML(content);
                 messageDiv.innerHTML = `
                     <strong>${sender === 'user' ? 'You' : 'Assistant'}:</strong>
+                    ${modelUsed ? `<small style="color: #666; font-style: italic;">(Using: ${modelUsed})</small>` : ''}
                     <div class="code-container">
                         <div class="code-header">
                             <span>Multi-Project YAML Configuration</span>
-
                         </div>
                         <div class="code-content">${formattedYaml}</div>
                     </div>
@@ -1857,6 +1927,23 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
+        function rollbackMigrationChanges() {
+            if (confirm('Are you sure you want to rollback last changes of db?')) {
+                socket.emit('rollback_migration_changes');
+            }
+        }
+        function Migrations() {
+            if (confirm('Are you sure you want to migrate tables db?')) {
+                socket.emit('migration_changes');
+            }
+        }
+        function restartServers() {
+            if (confirm('Are you sure you want to restart all servers?')) {
+                socket.emit('restart_servers');
+            }
+        }
+
+
         function loadResponse() {
             if (currentYamlResponse) {
                 // This would typically parse the YAML and show a preview
@@ -1892,7 +1979,7 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
-        function loadResponseToChat(conversationId, query, yamlResponse) {
+        function loadResponseToChat(conversationId, query, yamlResponse, modelUsed = null) {
             try {
                 // Clear current chat
                 chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
@@ -1909,7 +1996,7 @@ class MultiProjectAIChatbotWebUI:
 
                 // Add the assistant response
                 if(decodedYaml) {
-                    addMessage('assistant', decodedYaml, true, conversationId);
+                    addMessage('assistant', decodedYaml, true, conversationId, modelUsed);
                     currentYamlResponse = decodedYaml;
                 } else {
                     addMessage('assistant', 'No YAML response available', false, conversationId);
@@ -2056,7 +2143,7 @@ class MultiProjectAIChatbotWebUI:
         }
 
         // Make the original functions more robust
-        function loadResponseToChat(conversationId, query, yamlResponse) {
+        function loadResponseToChat(conversationId, query, yamlResponse, modelUsed = null) {
             try {
                 // Clear current chat
                 chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
@@ -2068,7 +2155,7 @@ class MultiProjectAIChatbotWebUI:
 
                 // Add the assistant response
                 if(yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
-                    addMessage('assistant', yamlResponse, true, conversationId);
+                    addMessage('assistant', yamlResponse, true, conversationId, modelUsed);
                     currentYamlResponse = yamlResponse;
                 } else {
                     addMessage('assistant', 'No YAML response available', false, conversationId);
@@ -2120,7 +2207,7 @@ class MultiProjectAIChatbotWebUI:
             hideTypingIndicator();
             currentYamlResponse = data.yaml_response;
             selectedConversationId = null; // Reset for new conversation
-            addMessage('assistant', data.yaml_response, true);
+            addMessage('assistant', data.yaml_response, true, null, data.model_used);
 
             // Refresh chat history to show the new conversation
             socket.emit('get_all_conversations');
@@ -2128,6 +2215,7 @@ class MultiProjectAIChatbotWebUI:
             // Re-enable input
             sendButton.disabled = false;
             messageInput.disabled = false;
+            modelSelect.disabled = false;
             messageInput.focus();
         });
 
@@ -2161,6 +2249,7 @@ class MultiProjectAIChatbotWebUI:
             // Re-enable input
             sendButton.disabled = false;
             messageInput.disabled = false;
+            modelSelect.disabled = false;
             messageInput.focus();
         });
     </script>
@@ -2194,8 +2283,14 @@ class MultiProjectAIChatbotWebUI:
             def process_message():
                 try:
                     query = data['message']
+                    model_name = data.get('model', 'qwen3-coder:480b-cloud')
                     session_id = request.sid
+
                     print(f"📨 Processing query: {query}")
+                    print(f"🤖 Using model: {model_name}")
+
+                    # Set the model before processing
+                    self.assistant.set_model(model_name)
 
                     # Process the query using auto-generate mode
                     yaml_response = self.assistant.process_query(query, session_id, use_auto_generate=True)
@@ -2206,7 +2301,8 @@ class MultiProjectAIChatbotWebUI:
                     # Send response back to client
                     emit('assistant_response', {
                         'yaml_response': yaml_response,
-                        'session_id': session_id
+                        'session_id': session_id,
+                        'model_used': model_name
                     }, room=session_id)
 
                     # Refresh conversation history
@@ -2336,6 +2432,151 @@ class MultiProjectAIChatbotWebUI:
             thread.daemon = True
             thread.start()
 
+        @self.socketio.on('restart_servers')
+        def handle_restart_servers(data=None):
+            @copy_current_request_context
+            def restart_servers_thread():
+                session_id = request.sid
+                results = {}
+
+                try:
+                    print("🔄 Restarting Rails and React servers...")
+
+                    for project in [
+                        {"name": "Rails", "command": f"bundle exec rails s -p {self.RAILS_PORT} -b 0.0.0.0", "path": self.RAILS_PATH, "kill_pattern": "rails s"},
+                        {"name": "React", "command": f"PORT={self.REACT_PORT} npm start -- --host 0.0.0.0", "path": self.REACT_PATH, "kill_pattern": "npm start"}
+                    ]:
+                        try:
+                            # Kill existing processes
+                            subprocess.run(f"pkill -9 -f '{project['kill_pattern']}'", shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+                            print(f"🛑 Stopped existing {project['name']} processes.")
+                            time.sleep(1)
+
+                            # Start new process
+                            if project['name'] == "React":
+                                subprocess.Popen(f"nohup bash -c '{project['command']}' > ~/react.log 2>&1 &", cwd=project['path'], shell=True)
+                            else:
+                                subprocess.Popen(project['command'], cwd=project['path'], shell=True)
+
+                            print(f"🚀 {project['name']} restarted.")
+                            results[project['name']] = "restarted successfully"
+
+                            time.sleep(3 if project['name'] == "Rails" else 5)
+
+                        except Exception as e:
+                            results[project['name']] = {'error': str(e)}
+                            print(f"❌ Error restarting {project['name']}: {e}")
+
+                    # Flush Redis
+                    try:
+                        subprocess.run(["redis-cli", "FLUSHALL"], check=True)
+                        print("🧹 Redis cache flushed.")
+                    except Exception as e:
+                        print(f"❌ Error flushing Redis: {e}")
+
+                    emit('restart_servers_results', {'results': results, 'session_id': session_id}, room=session_id)
+                    print("✅ Rails and React servers restarted successfully.")
+
+                except Exception as e:
+                    print(f"❌ Error during servers restart: {e}")
+                    emit('error', {'error': str(e)}, room=session_id)
+
+            thread = threading.Thread(target=restart_servers_thread)
+            thread.daemon = True
+            thread.start()
+
+
+        @self.socketio.on('migration_changes')
+        def handle_migration_changes(data=None):
+            @copy_current_request_context
+            def migration_thread():
+                session_id = request.sid
+                results = {}
+
+                try:
+                    print("🚀 Running Rails database migrations for all backend projects...")
+
+                    for project_path in self.assistant.project_paths:
+                        try:
+                            # Only run migrations if it's a Rails backend app
+                            if os.path.exists(os.path.join(project_path, 'config', 'application.rb')):
+                                print(f"🚀 Running migrations in {os.path.basename(project_path)}...")
+
+                                rails_migrate = subprocess.run(
+                                    ['bundle', 'exec', 'rails', 'db:migrate'],
+                                    cwd=project_path,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=120
+                                )
+
+                                results[project_path] = {
+                                    'stdout': rails_migrate.stdout,
+                                    'stderr': rails_migrate.stderr
+                                }
+                                print(rails_migrate.stdout)
+
+                        except Exception as e:
+                            results[project_path] = {'error': str(e)}
+                            print(f"❌ Error running migrations in {project_path}: {e}")
+
+                    emit('migration_results', {'results': results, 'session_id': session_id}, room=session_id)
+                    print("✅ Migrations completed successfully.")
+
+                except Exception as e:
+                    print(f"❌ Error in migration execution: {e}")
+                    emit('error', {'error': str(e)}, room=session_id)
+
+            thread = threading.Thread(target=migration_thread)
+            thread.daemon = True
+            thread.start()
+
+        @self.socketio.on('rollback_migration_changes')
+        def handle_rollback_migration_changes(data=None):
+            @copy_current_request_context
+            def rollback_migration_thread():
+                session_id = request.sid
+                results = {}
+
+                try:
+                    print("↩️ Rolling back Rails database migrations for all backend projects...")
+
+                    for project_path in self.assistant.project_paths:
+                        try:
+                            # Only rollback if it's a Rails backend app
+                            if os.path.exists(os.path.join(project_path, 'config', 'application.rb')):
+                                print(f"↩️ Rolling back migrations in {os.path.basename(project_path)}...")
+
+                                rails_rollback = subprocess.run(
+                                    ['bundle', 'exec', 'rails', 'db:rollback', 'STEP=1'],  # rollback last migration
+                                    cwd=project_path,
+                                    capture_output=True,
+                                    text=True,
+                                    timeout=60
+                                )
+
+                                results[project_path] = {
+                                    'stdout': rails_rollback.stdout,
+                                    'stderr': rails_rollback.stderr
+                                }
+                                print(rails_rollback.stdout)
+
+                        except Exception as e:
+                            results[project_path] = {'error': str(e)}
+                            print(f"❌ Error rolling back migrations in {project_path}: {e}")
+
+                    emit('rollback_migration_results', {'results': results, 'session_id': session_id}, room=session_id)
+                    print("✅ Migration rollback completed.")
+
+                except Exception as e:
+                    print(f"❌ Error in migration rollback: {e}")
+                    emit('error', {'error': str(e)}, room=session_id)
+
+            thread = threading.Thread(target=rollback_migration_thread)
+            thread.daemon = True
+            thread.start()
+
+
         @self.socketio.on('rollback_changes')
         def handle_rollback_changes(data=None):
             @copy_current_request_context
@@ -2423,6 +2664,7 @@ class MultiProjectAIChatbotWebUI:
         print("💡 Open the above URL in your browser to start chatting!")
         print("🗄️  PostgreSQL database is active and storing all conversations")
         print("🎯 Using INTENT-AWARE AUTO-GENERATE mode with dynamic file finding across projects")
+        print("🤖 Available models:", self.assistant.get_available_models())
 
         self.socketio.run(self.app, host=self.host, port=self.port, debug=False, allow_unsafe_werkzeug=True)
 
@@ -2481,6 +2723,7 @@ def main():
         print("🤖 Multi-Project AI Assistant Ready!")
         print("🗄️  PostgreSQL database active - storing all conversations")
         print("🎯 Using INTENT-AWARE AUTO-GENERATE mode with dynamic file finding across projects")
+        print("🤖 Available models:", assistant.get_available_models())
         print("="*60)
 
         while True:
