@@ -2443,8 +2443,8 @@ class MultiProjectAIChatbotWebUI:
                     print("🔄 Restarting Rails and React servers...")
 
                     for project in [
-                        {"name": "Rails", "command": f"bundle exec rails s -p {self.RAILS_PORT} -b 0.0.0.0", "path": self.RAILS_PATH, "kill_pattern": "rails s"},
-                        {"name": "React", "command": f"PORT={self.REACT_PORT} npm start -- --host 0.0.0.0", "path": self.REACT_PATH, "kill_pattern": "npm start"}
+                        {"name": "Rails", "command": f"bundle exec rails s -p 3000 -b 0.0.0.0", "path": self.RAILS_PATH, "kill_pattern": "rails s"},
+                        {"name": "React", "command": f"PORT=4000 npm start -- --host 0.0.0.0", "path": self.REACT_PATH, "kill_pattern": "npm start"}
                     ]:
                         try:
                             # Kill existing processes
