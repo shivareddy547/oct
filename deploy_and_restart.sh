@@ -7,7 +7,7 @@ SERVER_IP="152.67.5.153"
 KEY_PATH="/home/shivareddy/.ssh/id_rsa"
 REPO_URL="git@github.com:shivareddy547/oct.git"
 PROJECT_DIR="/home/opc/oct"
-BRANCH="main"
+BRANCH="all_server_actions_added_oct_14"
 
 # ============================
 # PROCESS CLEANUP
@@ -79,8 +79,8 @@ cd "$PROJECT_DIR"
 if [ ! -d ".git" ]; then
   git clone "git@github.com:shivareddy547/oct.git" .
 fi
-git fetch origin main
-git reset --hard origin/main
+git fetch origin all_server_actions_added_oct_14
+git reset --hard origin/all_server_actions_added_oct_14
 echo "✅ Code updated successfully!"
 
 # ============================
