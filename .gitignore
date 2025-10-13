@@ -26,5 +26,6 @@ my_api_app/vendor/bundle/
 !/tmp/storage/
 !/tmp/storage/.keep
 
+
 # Master key for decrypting credentials
 /config/master.key
