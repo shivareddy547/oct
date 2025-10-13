@@ -1566,8 +1566,8 @@ class MultiProjectAIChatbotWebUI:
             border-radius: 15px;
             padding: 20px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
-            width: 400px;
-            max-height: 700px;
+            width: 600px;
+            max-height: 850px;
             display: flex;
             flex-direction: column;
         }
@@ -1757,6 +1757,20 @@ class MultiProjectAIChatbotWebUI:
                <button class="rollback-button" onclick="rollbackMigrationChanges()">Rollback db changes</button></br>
                 <button class="rollback-button" onclick="Migrations()">Db Migrate</button></br>
                 <button class="rollback-button" onclick="restartServers()">Restart all servers</button>
+                 <!-- React App Button Section -->
+                    <div class="react-app-section" style="margin: 15px 0;">
+                        <a href="http://152.67.5.153:4000/" target="_blank" style="
+                            padding: 8px 16px;
+                            background-color: #007bff;
+                            color: white;
+                            border: none;
+                            border-radius: 4px;
+                            cursor: pointer;
+                            text-decoration: none;
+                            display: inline-block;
+                            font-size: 14px;
+                        ">Show React App Changes</a>
+                    </div>
 
 
             <h3>Chat History</h3>
