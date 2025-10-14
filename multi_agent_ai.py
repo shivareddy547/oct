@@ -1040,8 +1040,8 @@ class MultiProjectAIAssistant:
             }
 
             # Define project paths
-            rails_path = "/media/shivareddy/E/oct-2025/oct/my_api_app"
-            react_path = "/media/shivareddy/E/oct-2025/oct/my-blue-app"
+            rails_path = "/home/opc/oct/my_api_app"
+            react_path = "/home/opc/oct/oct/my-blue-app"
 
             projects = json_response.get('projects', [])
 
@@ -1053,9 +1053,9 @@ class MultiProjectAIAssistant:
 
                 # Force correct project root for React or Rails
                 if project_info.get('project_type') == 'react' and project_path == '.':
-                    project_path = "/media/shivareddy/E/oct-2025/oct/my-blue-app"
+                    project_path = "/home/opc/oct/my-blue-app"
                 elif project_info.get('project_type') == 'rails' and project_path == '.':
-                    project_path = "/media/shivareddy/E/oct-2025/oct/my_api_app"
+                    project_path = "/home/opc/oct/my_api_app"
 
                 project_type = project_info.get('project_type', 'unknown')
 
