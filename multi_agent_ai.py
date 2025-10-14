@@ -975,6 +975,8 @@ class MultiProjectAIAssistant:
                 react_deps = json_response['packages']['react_dependencies']
                 react_dev_deps = json_response['packages']['react_devDependencies']
                 rails_gems = json_response['packages']['rails_gems']
+                print(222222222222222222222222222222)
+                print(self.project_paths)
 
                 # Find project paths for each type
                 react_projects = [p for p in self.project_paths if 'react' in p.lower() or not any('rails' in rp.lower() for rp in self.project_paths)]
@@ -1022,6 +1024,10 @@ class MultiProjectAIAssistant:
                 ]
             }
 
+    import os
+    import subprocess
+    from typing import Dict
+
     def apply_changes(self, json_response: Dict) -> Dict:
         """Apply changes from LLM JSON response to project files."""
         try:
@@ -1033,20 +1039,27 @@ class MultiProjectAIAssistant:
                 'install_output': []
             }
 
+            # Define project paths
+            rails_path = "/media/shivareddy/E/oct-2025/oct/my_api_app"
+            react_path = "/media/shivareddy/E/oct-2025/oct/my-blue-app"
+
             projects = json_response.get('projects', [])
 
+            # ------------------------
+            # 1. Write project files
+            # ------------------------
             for project_info in projects:
-                # Determine project_path and project_type
                 project_path = project_info.get('project_path')
+
+                # Force correct project root for React or Rails
+                if project_info.get('project_type') == 'react' and project_path == '.':
+                    project_path = "/media/shivareddy/E/oct-2025/oct/my-blue-app"
+                elif project_info.get('project_type') == 'rails' and project_path == '.':
+                    project_path = "/media/shivareddy/E/oct-2025/oct/my_api_app"
+
                 project_type = project_info.get('project_type', 'unknown')
 
-                # Sometimes LLM nests project_path/type under first file
-                if not project_path and 'files' in project_info and len(project_info['files']) > 0:
-                    project_path = project_info['files'][0].get('project_path')
-                    project_type = project_info['files'][0].get('project_type', project_type)
-
                 if not project_path:
-                    # fallback to first known project path
                     project_path = self.project_paths[0]
 
                 print(f"🔄 Applying changes to project: {project_path} (type: {project_type})")
@@ -1055,27 +1068,18 @@ class MultiProjectAIAssistant:
                     file_path = file_info.get('path')
                     content = file_info.get('content', '')
 
-                    # Determine full file path
                     if "db/migrate/" in file_path:
                         from datetime import datetime
                         import re
                         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                         base_name = os.path.basename(file_path)
-
-                        # Remove leading numbers and underscores from migration name
                         base_name = re.sub(r'^\d+_', '', base_name)
-
-                        # Ensure correct .rb extension
                         if not base_name.endswith('.rb'):
                             base_name = base_name.replace('_rb', '.rb')
                             if not base_name.endswith('.rb'):
                                 base_name += '.rb'
-
-                        # Clean up invalid characters but keep dot before .rb
                         base_name = re.sub(r'[^a-z0-9_.]', '_', base_name.lower())
-
                         full_path = os.path.join(project_path, "db/migrate", f"{timestamp}_{base_name}")
-
                     else:
                         full_path = os.path.join(project_path, file_path)
 
@@ -1085,6 +1089,7 @@ class MultiProjectAIAssistant:
 
                         with open(full_path, 'w', encoding='utf-8') as f:
                             f.write(content)
+                        os.utime(full_path, None)
 
                         entry = f"[{project_type.upper()}] {file_path} -> {project_path}"
                         if file_exists:
@@ -1099,13 +1104,53 @@ class MultiProjectAIAssistant:
                         results['files_failed'].append(entry)
                         print(f"❌ Failed: {entry}")
 
-            # Handle package installation (optional)
-            if 'install_commands' in json_response and json_response['install_commands']:
-                for command in json_response['install_commands']:
-                    # Run command logic (same as before)
-                    pass  # keep your existing install logic
+            # ------------------------
+            # 2. Handle Package Installation
+            # ------------------------
+            install_cmds = json_response.get('install_commands', [])
+            if install_cmds:
+                results['packages_installed'] = True
+                rails_updated = False
+                react_updated = False
 
-            # Update Redis cache with new file structure
+                for cmd in install_cmds:
+                    if 'npm' in cmd:
+                        cwd = react_path
+                        react_updated = True
+                    elif any(x in cmd for x in ['bundle', 'rails', 'gem']):
+                        cwd = rails_path
+                        rails_updated = True
+                    else:
+                        cwd = os.getcwd()
+
+                    print(f"📦 Running: {cmd} (in {cwd})")
+                    try:
+                        completed = subprocess.run(
+                            cmd,
+                            cwd=cwd,
+                            shell=True,
+                            stdout=subprocess.PIPE,
+                            stderr=subprocess.PIPE,
+                            text=True
+                        )
+                        output = completed.stdout.strip() + "\n" + completed.stderr.strip()
+                        results['install_output'].append(f"{cmd}\n{output}")
+                        print(f"✅ Command completed: {cmd}")
+                    except Exception as e:
+                        results['install_output'].append(f"{cmd}\n❌ Error: {str(e)}")
+                        print(f"❌ Failed command: {cmd}")
+
+                # ------------------------
+                # 3. Restart servers silently
+                # ------------------------
+                if react_updated:
+                    self._restart_react_server(react_path)
+                if rails_updated:
+                    self._restart_rails_server(rails_path)
+
+            # ------------------------
+            # 4. Update Redis Cache
+            # ------------------------
             self.redis_manager.store_project_structure(self.project_paths, self.project_id)
 
             return results
@@ -1118,6 +1163,46 @@ class MultiProjectAIAssistant:
                 'packages_installed': False,
                 'install_output': [f"Application error: {str(e)}"]
             }
+
+
+    # ---------------------------------------------
+    # 🔧 Helper functions for silent restart
+    # ---------------------------------------------
+    def _restart_react_server(self, react_path: str):
+        """Silently restart the React development server."""
+        print("🔁 Restarting React server silently...")
+        try:
+            # Kill any running npm start
+            subprocess.run("pkill -f 'npm start'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            # Restart it in background
+            subprocess.Popen(
+                "nohup npm start --port 4000 >/dev/null 2>&1 &",
+                cwd=react_path,
+                shell=True
+            )
+            print("✅ React server restarted.")
+        except Exception as e:
+            print(f"⚠️ React restart failed: {e}")
+
+
+    def _restart_rails_server(self, rails_path: str):
+        """Silently restart the Rails server."""
+        print("🔁 Restarting Rails server silently...")
+        try:
+            # Kill running Rails process
+            subprocess.run("pkill -f 'rails s'", shell=True, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+            # Restart it in background
+            subprocess.Popen(
+                "nohup rails s -p 3000 >/dev/null 2>&1 &",
+                cwd=rails_path,
+                shell=True
+            )
+            print("✅ Rails server restarted.")
+        except Exception as e:
+            print(f"⚠️ Rails restart failed: {e}")
+
 
     def process_query(self, query: str, session_id: str = "default", use_auto_generate: bool = True) -> Dict:
         """Process user query and return JSON response"""
