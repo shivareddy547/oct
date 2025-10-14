@@ -319,9 +319,9 @@ class MultiProjectContextBuilder:
 
         return content_parts
 
-# PostgreSQL Database Manager (Updated for multi-project)
+# PostgreSQL Database Manager (Updated for JSON storage)
 class PostgresDB:
-    def __init__(self, dbname='multi_project_ai_assistant', user='postgres', password='root',
+    def __init__(self, dbname='multi_project_ai_assistant_json', user='postgres', password='root',
                  host='localhost', port=5432):
         self.db_config = {
             'dbname': dbname,
@@ -350,13 +350,13 @@ class PostgresDB:
         try:
             cursor = conn.cursor()
 
-            # Create conversations table with project_type
+            # Create conversations table with json_response instead of yaml_response
             cursor.execute('''
                 CREATE TABLE IF NOT EXISTS conversations (
                     id SERIAL PRIMARY KEY,
                     session_id VARCHAR(255) NOT NULL,
                     query TEXT NOT NULL,
-                    yaml_response TEXT NOT NULL,
+                    json_response JSONB NOT NULL,
                     project_type VARCHAR(50) NOT NULL,
                     project_paths JSONB NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -388,7 +388,7 @@ class PostgresDB:
         finally:
             conn.close()
 
-    def store_conversation(self, session_id: str, query: str, yaml_response: str, project_paths: List[str]) -> int:
+    def store_conversation(self, session_id: str, query: str, json_response: Dict, project_paths: List[str]) -> int:
         """Store a conversation in the database and return the conversation ID"""
         conn = self.get_connection()
         if not conn:
@@ -407,10 +407,10 @@ class PostgresDB:
                     project_type = "react"
 
             cursor.execute('''
-                INSERT INTO conversations (session_id, query, yaml_response, project_type, project_paths)
+                INSERT INTO conversations (session_id, query, json_response, project_type, project_paths)
                 VALUES (%s, %s, %s, %s, %s)
                 RETURNING id
-            ''', (session_id, query, yaml_response, project_type, json.dumps(project_paths)))
+            ''', (session_id, query, json.dumps(json_response), project_type, json.dumps(project_paths)))
 
             conversation_id = cursor.fetchone()[0]
             conn.commit()
@@ -480,7 +480,7 @@ class PostgresDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
 
             cursor.execute('''
-                SELECT id, session_id, query, yaml_response, project_type, project_paths, created_at, applied_at
+                SELECT id, session_id, query, json_response, project_type, project_paths, created_at, applied_at
                 FROM conversations
                 WHERE session_id = %s
                 ORDER BY created_at DESC
@@ -518,7 +518,7 @@ class PostgresDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
 
             cursor.execute('''
-                SELECT id, session_id, query, yaml_response, project_type, project_paths, created_at, applied_at
+                SELECT id, session_id, query, json_response, project_type, project_paths, created_at, applied_at
                 FROM conversations
                 ORDER BY created_at DESC
                 LIMIT %s
@@ -556,7 +556,7 @@ class PostgresDB:
             cursor = conn.cursor(cursor_factory=RealDictCursor)
 
             cursor.execute('''
-                SELECT id, session_id, query, yaml_response, project_type, project_paths, created_at, applied_at
+                SELECT id, session_id, query, json_response, project_type, project_paths, created_at, applied_at
                 FROM conversations
                 WHERE id = %s
             ''', (conversation_id,))
@@ -743,8 +743,8 @@ class OllamaAnalyzer:
         project_context = context_builder.build_context(relevant_files_with_types, intent)
 
         # Step 3: Send to Ollama with intent-aware prompt
-        yaml_output = self.analyze_and_generate_changes(user_query, project_context, project_roots, intent)
-        return yaml_output
+        json_output = self.analyze_and_generate_changes(user_query, project_context, project_roots, intent)
+        return json_output
 
     def _get_key_files_for_project(self, project_root: str, project_type: str) -> List[str]:
         """Get key files for different project types"""
@@ -767,22 +767,15 @@ class OllamaAnalyzer:
         else:
             return ['package.json', 'Gemfile']
 
-    def analyze_and_generate_changes(self, prompt: str, project_context: str, project_roots: List[str], intent: Dict[str, bool]) -> str:
-        """Use Ollama to analyze projects and generate specific file changes for multiple projects"""
+    def analyze_and_generate_changes(self, prompt: str, project_context: str, project_roots: List[str], intent: Dict[str, bool]) -> Dict:
+        """Use Ollama to analyze projects and generate specific file changes for multiple projects in JSON format"""
         print(f"Analyzing {len(project_roots)} projects for: {prompt}")
         print(f"Intent: Frontend: {intent['frontend']}, Backend: {intent['backend']}")
         print(f"Using model: {self.model}")
-        print(11111111111111111111)
-        print(project_roots)
 
         # Find which projects are React and which are Rails
         react_projects = [p for p in project_roots if any(x in p.lower() for x in ['react', 'src/', 'components/'])]
         rails_projects = [p for p in project_roots if any(x in p.lower() for x in ['rails', 'app/', 'config/', 'db/'])]
-        react_projects = ['my-blue-app/']
-        rails_projects = ['my_api_app/']
-        print(react_projects)
-        print(rails_projects)
-        print(333333333333)
 
         # If we can't determine, assume first is React, second is Rails
         if not react_projects and not rails_projects:
@@ -793,9 +786,8 @@ class OllamaAnalyzer:
                 react_projects = project_roots
                 rails_projects = []
 
-        print(react_projects)
         system_prompt = f"""You are an expert full-stack developer working with both React.js and Ruby on Rails applications.
-Analyze the user's request and the current project structures, then provide ONLY the specific file changes and required packages in YAML format.
+Analyze the user's request and the current project structures, then provide ONLY the specific file changes and required packages in JSON format.
 
 Available Projects:
 React: {', '.join(react_projects) if react_projects else 'None'}
@@ -811,45 +803,41 @@ IMPORTANT: Based on the intent analysis, focus on the appropriate projects:
 {"**BACKEND FOCUS** - Primarily modify Rails files" if intent['backend'] and not intent['frontend'] else ""}
 {"**FULLSTACK FOCUS** - Modify both React and Rails files" if intent['fullstack'] else ""}
 
-Respond ONLY with valid YAML in this exact format:
+Respond ONLY with valid JSON in this exact format:
 
-projects:
-  - project_path: "{react_projects[0] if react_projects else '.'}"
-    project_type: "react"
-    files:
-      - path: "src/components/Component.js"
-        content: |
-          // Full file content with changes
-          import React from 'react';
-
-          const Component = () => {{
-            return <div>Content</div>;
-          }};
-
-          export default Component;
-
-  - project_path: "{rails_projects[0] if rails_projects else ''}"
-    project_type: "rails"
-    files:
-      - path: "app/controllers/some_controller.rb"
-        content: |
-          class SomeController < ApplicationController
-            def index
-              # Controller code here
-            end
-          end
-
-packages:
-  react_dependencies:
-    - "package-name@version"
-  react_devDependencies:
-    - "@types/package@version"
-  rails_gems:
-    - "gem-name"
-
-install_commands:
-  - "cd {react_projects[0] if react_projects else '.'} && npm install package-name@version"
-  - "cd {rails_projects[0] if rails_projects else '.'} && bundle add gem-name"
+{{
+  "projects": [
+    {{
+      "project_path": "{react_projects[0] if react_projects else '.'}",
+      "project_type": "react",
+      "files": [
+        {{
+          "path": "src/components/Component.js",
+          "content": "// Full file content with changes\\nimport React from 'react';\\n\\nconst Component = () => {{\\n  return <div>Content</div>;\\n}};\\n\\nexport default Component;"
+        }}
+      ]
+    }},
+    {{
+      "project_path": "{rails_projects[0] if rails_projects else ''}",
+      "project_type": "rails",
+      "files": [
+        {{
+          "path": "app/controllers/some_controller.rb",
+          "content": "class SomeController < ApplicationController\\n  def index\\n    # Controller code here\\n  end\\nend"
+        }}
+      ]
+    }}
+  ],
+  "packages": {{
+    "react_dependencies": ["package-name@version"],
+    "react_devDependencies": ["@types/package@version"],
+    "rails_gems": ["gem-name"]
+  }},
+  "install_commands": [
+    "cd {react_projects[0] if react_projects else '.'} && npm install package-name@version",
+    "cd {rails_projects[0] if rails_projects else '.'} && bundle add gem-name"
+  ]
+}}
 
 Rules:
 1. {"Focus on React files only" if intent['frontend'] and not intent['backend'] else ""}
@@ -870,7 +858,7 @@ Rules:
 16. For database changes in Rails, include migration files if needed
 17. For Rails: we dont have authentication so just create apis without any authentication changes
 
-Do not include any explanations, analysis, or text outside the YAML format."""
+Do not include any explanations, analysis, or text outside the JSON format."""
 
         full_prompt = f"""MULTI-PROJECT CONTEXT:
 {project_context}
@@ -882,7 +870,7 @@ QUERY INTENT:
 - Backend changes needed: {intent['backend']}
 - Fullstack feature: {intent['fullstack']}
 
-Generate the appropriate file changes and required packages in YAML format:"""
+Generate the appropriate file changes and required packages in JSON format:"""
 
         try:
             response = requests.post(
@@ -896,11 +884,29 @@ Generate the appropriate file changes and required packages in YAML format:"""
                 timeout=10000  # 2 minute timeout
             )
             response.raise_for_status()
-            return response.json()["response"]
+            response_text = response.json()["response"]
+
+            # Extract JSON from response
+            json_match = re.search(r'```json\n(.*?)\n```', response_text, re.DOTALL)
+            if json_match:
+                json_str = json_match.group(1)
+            else:
+                # Try to find JSON without markers
+                json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+                if json_match:
+                    json_str = json_match.group(0)
+                else:
+                    json_str = response_text
+
+            # Parse JSON
+            return json.loads(json_str)
+
         except requests.exceptions.Timeout:
-            return "Error: Request timeout - Ollama server took too long to respond"
+            return {"error": "Request timeout - Ollama server took too long to respond"}
+        except json.JSONDecodeError as e:
+            return {"error": f"Invalid JSON response: {e}", "raw_response": response_text}
         except Exception as e:
-            return f"Error: {e}"
+            return {"error": str(e)}
 
 class MultiProjectAIAssistant:
     def __init__(self, project_paths: List[str], redis_host='localhost', redis_port=6379,
@@ -935,118 +941,90 @@ class MultiProjectAIAssistant:
         print(f"🎉 All projects stored in Redis with {total_files} total files (Project ID: {self.project_id})")
         return project_data
 
-    def extract_yaml_from_response(self, response: str) -> str:
-        """Extract YAML content from Ollama response"""
-        # Try to find YAML content between markers
-        yaml_match = re.search(r'```yaml\n(.*?)\n```', response, re.DOTALL)
-        if yaml_match:
-            return yaml_match.group(1)
-
-        # Try to find YAML content without markers
-        yaml_match = re.search(r'^(projects:|files:|packages:|install_commands:)', response, re.MULTILINE)
-        if yaml_match:
-            return response
-
-        # If no YAML found, return the original response wrapped in proper YAML structure
-        return f'''projects:
-  - project_path: "{self.project_paths[0]}"
-    project_type: "unknown"
-    files:
-      - path: "response.txt"
-        content: |
-          {response}
-
-packages:
-  react_dependencies: []
-  react_devDependencies: []
-  rails_gems: []
-
-install_commands:
-  - "echo 'No additional packages required'"'''
-
-    def validate_and_complete_yaml(self, yaml_content: str) -> str:
-        """Validate YAML and ensure all required sections are present"""
+    def validate_and_complete_json(self, json_response: Dict) -> Dict:
+        """Validate JSON and ensure all required sections are present"""
         try:
-            data = yaml.safe_load(yaml_content)
-
             # Ensure projects section exists
-            if 'projects' not in data:
-                data['projects'] = [{
+            if 'projects' not in json_response:
+                json_response['projects'] = [{
                     'project_path': self.project_paths[0],
                     'project_type': 'unknown',
                     'files': []
                 }]
 
             # Ensure packages section exists with proper structure
-            if 'packages' not in data:
-                data['packages'] = {
+            if 'packages' not in json_response:
+                json_response['packages'] = {
                     'react_dependencies': [],
                     'react_devDependencies': [],
                     'rails_gems': []
                 }
             else:
-                if 'react_dependencies' not in data['packages']:
-                    data['packages']['react_dependencies'] = []
-                if 'react_devDependencies' not in data['packages']:
-                    data['packages']['react_devDependencies'] = []
-                if 'rails_gems' not in data['packages']:
-                    data['packages']['rails_gems'] = []
+                if 'react_dependencies' not in json_response['packages']:
+                    json_response['packages']['react_dependencies'] = []
+                if 'react_devDependencies' not in json_response['packages']:
+                    json_response['packages']['react_devDependencies'] = []
+                if 'rails_gems' not in json_response['packages']:
+                    json_response['packages']['rails_gems'] = []
 
             # Ensure install_commands section exists
-            if 'install_commands' not in data:
-                data['install_commands'] = []
+            if 'install_commands' not in json_response:
+                json_response['install_commands'] = []
 
                 # Generate install commands from packages if not provided
-                react_deps = data['packages']['react_dependencies']
-                react_dev_deps = data['packages']['react_devDependencies']
-                rails_gems = data['packages']['rails_gems']
+                react_deps = json_response['packages']['react_dependencies']
+                react_dev_deps = json_response['packages']['react_devDependencies']
+                rails_gems = json_response['packages']['rails_gems']
 
                 # Find project paths for each type
-                print(self.project_paths)
-                print(2222222222222222222222)
                 react_projects = [p for p in self.project_paths if 'react' in p.lower() or not any('rails' in rp.lower() for rp in self.project_paths)]
                 rails_projects = [p for p in self.project_paths if 'rails' in p.lower()]
 
                 if react_deps and react_projects:
                     for project in react_projects:
-                        data['install_commands'].append(f"cd {project} && npm install {' '.join(react_deps)}")
+                        json_response['install_commands'].append(f"cd {project} && npm install {' '.join(react_deps)}")
                 if react_dev_deps and react_projects:
                     for project in react_projects:
-                        data['install_commands'].append(f"cd {project} && npm install --save-dev {' '.join(react_dev_deps)}")
+                        json_response['install_commands'].append(f"cd {project} && npm install --save-dev {' '.join(react_dev_deps)}")
                 if rails_gems and rails_projects:
                     for project in rails_projects:
                         for gem in rails_gems:
-                            data['install_commands'].append(f"cd {project} && bundle add {gem}")
-                        data['install_commands'].append(f"cd {project} && bundle install")
+                            json_response['install_commands'].append(f"cd {project} && bundle add {gem}")
+                        json_response['install_commands'].append(f"cd {project} && bundle install")
 
                 if not react_deps and not react_dev_deps and not rails_gems:
-                    data['install_commands'].append("echo 'No additional packages required'")
+                    json_response['install_commands'].append("echo 'No additional packages required'")
 
-            return yaml.dump(data, default_flow_style=False, indent=2, allow_unicode=True, width=1000)
+            return json_response
 
-        except yaml.YAMLError as e:
-            # Return a basic valid YAML structure with the error
-            return f'''projects:
-  - project_path: "{self.project_paths[0]}"
-    project_type: "unknown"
-    files:
-      - path: "error.txt"
-        content: |
-          Invalid YAML response: {e}
-          Original response: {yaml_content}
+        except Exception as e:
+            # Return a basic valid JSON structure with the error
+            return {
+                "projects": [
+                    {
+                        "project_path": self.project_paths[0],
+                        "project_type": "unknown",
+                        "files": [
+                            {
+                                "path": "error.txt",
+                                "content": f"Invalid JSON response: {e}"
+                            }
+                        ]
+                    }
+                ],
+                "packages": {
+                    "react_dependencies": [],
+                    "react_devDependencies": [],
+                    "rails_gems": []
+                },
+                "install_commands": [
+                    "echo 'Error in JSON generation'"
+                ]
+            }
 
-packages:
-  react_dependencies: []
-  react_devDependencies: []
-  rails_gems: []
-
-install_commands:
-  - "echo 'Error in YAML generation'"'''
-
-    def apply_changes(self, yaml_response: str) -> Dict:
-        """Apply changes from LLM YAML response to project files."""
+    def apply_changes(self, json_response: Dict) -> Dict:
+        """Apply changes from LLM JSON response to project files."""
         try:
-            data = yaml.safe_load(yaml_response)
             results = {
                 'files_created': [],
                 'files_updated': [],
@@ -1055,7 +1033,7 @@ install_commands:
                 'install_output': []
             }
 
-            projects = data.get('projects', [])
+            projects = json_response.get('projects', [])
 
             for project_info in projects:
                 # Determine project_path and project_type
@@ -1077,18 +1055,27 @@ install_commands:
                     file_path = file_info.get('path')
                     content = file_info.get('content', '')
 
-                    # Decode escaped newlines (\n) into real newlines
-                    content = content.encode('utf-8').decode('unicode_escape')
-
                     # Determine full file path
                     if "db/migrate/" in file_path:
                         from datetime import datetime
                         import re
                         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
                         base_name = os.path.basename(file_path)
+
+                        # Remove leading numbers and underscores from migration name
                         base_name = re.sub(r'^\d+_', '', base_name)
-                        base_name = re.sub(r'[^a-z0-9_]', '_', base_name.lower())
+
+                        # Ensure correct .rb extension
+                        if not base_name.endswith('.rb'):
+                            base_name = base_name.replace('_rb', '.rb')
+                            if not base_name.endswith('.rb'):
+                                base_name += '.rb'
+
+                        # Clean up invalid characters but keep dot before .rb
+                        base_name = re.sub(r'[^a-z0-9_.]', '_', base_name.lower())
+
                         full_path = os.path.join(project_path, "db/migrate", f"{timestamp}_{base_name}")
+
                     else:
                         full_path = os.path.join(project_path, file_path)
 
@@ -1113,8 +1100,8 @@ install_commands:
                         print(f"❌ Failed: {entry}")
 
             # Handle package installation (optional)
-            if 'install_commands' in data and data['install_commands']:
-                for command in data['install_commands']:
+            if 'install_commands' in json_response and json_response['install_commands']:
+                for command in json_response['install_commands']:
                     # Run command logic (same as before)
                     pass  # keep your existing install logic
 
@@ -1132,31 +1119,30 @@ install_commands:
                 'install_output': [f"Application error: {str(e)}"]
             }
 
-
-    def process_query(self, query: str, session_id: str = "default", use_auto_generate: bool = True) -> str:
-        """Process user query and return YAML response"""
+    def process_query(self, query: str, session_id: str = "default", use_auto_generate: bool = True) -> Dict:
+        """Process user query and return JSON response"""
         print(f"🔄 Processing: {query}")
         print(f"🤖 Using model: {self.ollama.model}")
 
         if use_auto_generate:
             # Use the new auto-generate approach with dynamic file finding across all projects
-            yaml_response = self.ollama.auto_generate_file_changes(query, self.project_paths)
+            json_response = self.ollama.auto_generate_file_changes(query, self.project_paths)
         else:
             # For multi-project, we'll use auto-generate as default
-            yaml_response = self.ollama.auto_generate_file_changes(query, self.project_paths)
+            json_response = self.ollama.auto_generate_file_changes(query, self.project_paths)
 
-        # Validate and complete the YAML structure
-        final_yaml = self.validate_and_complete_yaml(yaml_response)
+        # Validate and complete the JSON structure
+        final_json = self.validate_and_complete_json(json_response)
 
         # Store conversation in PostgreSQL
-        conversation_id = self.db.store_conversation(session_id, query, final_yaml, self.project_paths)
+        conversation_id = self.db.store_conversation(session_id, query, final_json, self.project_paths)
 
         if conversation_id == -1:
             print("❌ Failed to store conversation in database!")
         else:
             print(f"✅ Successfully stored conversation with ID: {conversation_id}")
 
-        return final_yaml
+        return final_json
 
     def get_project_info(self) -> Dict:
         """Get project information for all projects"""
@@ -1178,7 +1164,7 @@ install_commands:
             }
         return {}
 
-# Web-based Chatbot UI (Updated for multi-project)
+# Web-based Chatbot UI (Updated for JSON)
 class MultiProjectAIChatbotWebUI:
     def __init__(self, project_paths: List[str], redis_host='localhost', redis_port=6379,
                  ollama_url='http://localhost:11434', host='0.0.0.0', port=5000,
@@ -1369,12 +1355,12 @@ class MultiProjectAIChatbotWebUI:
             background: #1e1e1e;
             color: #d4d4d4;
         }
-        .yaml-key { color: #9cdcfe; }
-        .yaml-string { color: #ce9178; }
-        .yaml-number { color: #b5cea8; }
-        .yaml-boolean { color: #569cd6; }
-        .yaml-null { color: #569cd6; }
-        .yaml-comment { color: #6a9955; font-style: italic; }
+        .json-key { color: #9cdcfe; }
+        .json-string { color: #ce9178; }
+        .json-number { color: #b5cea8; }
+        .json-boolean { color: #569cd6; }
+        .json-null { color: #569cd6; }
+        .json-comment { color: #6a9955; font-style: italic; }
         .copy-button {
             background: #007bff;
             color: white;
@@ -1625,7 +1611,7 @@ class MultiProjectAIChatbotWebUI:
             color: white;
             border-left-color: #0056b3;
         }
-        .history-yaml {
+        .history-json {
             display: none;
             background: #f8f9fa;
             border: 1px solid #e9ecef;
@@ -1694,16 +1680,16 @@ class MultiProjectAIChatbotWebUI:
             margin-top: 5px;
             font-family: monospace;
             max-width: 100%;
-            overflow: hidden; /* Hide overflow outside pre */
+            overflow: hidden;
         }
 
         .code-content {
-            white-space: pre;         /* Preserve indentation and line breaks */
-            overflow-y: auto;         /* Vertical scroll */
-            max-height: 500px;        /* Fixed height for scrolling */
+            white-space: pre;
+            overflow-y: auto;
+            max-height: 500px;
             padding: 10px;
             margin: 0;
-            overflow-x: auto;         /* Optional: horizontal scroll for very long lines */
+            overflow-x: auto;
         }
 
     </style>
@@ -1756,7 +1742,8 @@ class MultiProjectAIChatbotWebUI:
             <h3>Actions</h3>
                <button class="rollback-button" onclick="rollbackMigrationChanges()">Rollback db changes</button></br>
                 <button class="rollback-button" onclick="Migrations()">Db Migrate</button></br>
-                <button class="rollback-button" onclick="restartServers()">Restart all servers</button>
+                <button class="rollback-button" onclick="restartServers()">Restart all servers</button></br>
+                <button class="rollback-button" onclick="resetDb()">Reset db changes</button></br>
                  <!-- React App Button Section -->
                     <div class="react-app-section" style="margin: 15px 0;">
                         <a href="http://152.67.5.153:4000/" target="_blank" style="
@@ -1784,7 +1771,7 @@ class MultiProjectAIChatbotWebUI:
 
     <script>
         const socket = io();
-        let currentYamlResponse = '';
+        let currentJsonResponse = '';
         let currentSessionId = '';
         let selectedConversationId = null;
 
@@ -1839,36 +1826,43 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
-        function formatYAML(yamlContent) {
-            if (!yamlContent) return '';
+        function formatJSON(jsonContent) {
+            if (!jsonContent) return '';
 
-            // Simple YAML syntax highlighting
-            return yamlContent
-                .replace(/(^|\s)([a-zA-Z_][a-zA-Z0-9_]*):/g, '$1<span class="yaml-key">$2</span>:')
-                .replace(/:(\s*)(["'])(.*?)\2/g, ':$1<span class="yaml-string">$2$3$2</span>')
-                .replace(/:(\s*)([0-9]+(\.[0-9]+)?)/g, ':$1<span class="yaml-number">$2</span>')
-                .replace(/:(\s*)(true|false)/g, ':$1<span class="yaml-boolean">$2</span>')
-                .replace(/:(\s*)(null)/g, ':$1<span class="yaml-null">$2</span>')
-                .replace(/#(.*)$/gm, '<span class="yaml-comment">#$1</span>');
+            try {
+                const jsonObj = typeof jsonContent === 'string' ? JSON.parse(jsonContent) : jsonContent;
+                const formatted = JSON.stringify(jsonObj, null, 2);
+
+                // Simple JSON syntax highlighting
+                return formatted
+                    .replace(/"([^"]+)":/g, '<span class="json-key">"$1"</span>:')
+                    .replace(/: ("[^"]*")/g, ': <span class="json-string">$1</span>')
+                    .replace(/: (true|false)/g, ': <span class="json-boolean">$1</span>')
+                    .replace(/: (null)/g, ': <span class="json-null">$1</span>')
+                    .replace(/: (\d+)/g, ': <span class="json-number">$1</span>');
+            } catch (e) {
+                return jsonContent;
+            }
         }
 
-        function addMessage(sender, content, isYaml = false, conversationId = null, modelUsed = null) {
+        function addMessage(sender, content, isJson = false, conversationId = null, modelUsed = null) {
             const messageDiv = document.createElement('div');
             messageDiv.className = `message ${sender}-message`;
             if (conversationId) {
                 messageDiv.setAttribute('data-conversation-id', conversationId);
             }
 
-            if (isYaml) {
-                const formattedYaml = formatYAML(content);
+            if (isJson) {
+                const formattedJson = formatJSON(content);
                 messageDiv.innerHTML = `
                     <strong>${sender === 'user' ? 'You' : 'Assistant'}:</strong>
                     ${modelUsed ? `<small style="color: #666; font-style: italic;">(Using: ${modelUsed})</small>` : ''}
                     <div class="code-container">
                         <div class="code-header">
-                            <span>Multi-Project YAML Configuration</span>
+                            <span>Multi-Project JSON Configuration</span>
+                            <button class="copy-button" onclick="copyToClipboard(this, '${escapeHtml(JSON.stringify(content, null, 2))}')">Copy JSON</button>
                         </div>
-                        <div class="code-content">${formattedYaml}</div>
+                        <div class="code-content">${formattedJson}</div>
                     </div>
                     ${sender === 'assistant' ?
                         '<div class="action-buttons">' +
@@ -1918,18 +1912,18 @@ class MultiProjectAIChatbotWebUI:
         }
 
         function applyChanges() {
-            if (currentYamlResponse) {
+            if (currentJsonResponse) {
                 socket.emit('apply_changes', {
-                    yaml_response: currentYamlResponse,
+                    json_response: currentJsonResponse,
                     conversation_id: selectedConversationId
                 });
             }
         }
 
         function saveChanges() {
-            if (currentYamlResponse) {
+            if (currentJsonResponse) {
                 socket.emit('save_changes', {
-                    yaml_response: currentYamlResponse,
+                    json_response: currentJsonResponse,
                     conversation_id: selectedConversationId
                 });
             }
@@ -1938,6 +1932,12 @@ class MultiProjectAIChatbotWebUI:
         function rollbackChanges() {
             if (confirm('Are you sure you want to rollback all changes across all projects?')) {
                 socket.emit('rollback_changes');
+            }
+        }
+
+        function resetDb() {
+            if (confirm('Are you sure you want to reset db?')) {
+                socket.emit('reset_db');
             }
         }
 
@@ -1957,33 +1957,32 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
-
         function loadResponse() {
-            if (currentYamlResponse) {
-                // This would typically parse the YAML and show a preview
+            if (currentJsonResponse) {
+                // This would typically parse the JSON and show a preview
                 alert('Response loaded for review. You can now apply or save the changes.');
             }
         }
 
-        function applyHistoryChanges(conversationId, yamlResponse) {
-            if (yamlResponse && yamlResponse !== 'No YAML response') {
+        function applyHistoryChanges(conversationId, jsonResponse) {
+            if (jsonResponse && jsonResponse !== 'No JSON response') {
                 socket.emit('apply_changes', {
-                    yaml_response: yamlResponse,
+                    json_response: jsonResponse,
                     conversation_id: conversationId
                 });
             } else {
-                alert('No YAML response found for this conversation');
+                alert('No JSON response found for this conversation');
             }
         }
 
-        function saveHistoryChanges(conversationId, yamlResponse) {
-            if (yamlResponse && yamlResponse !== 'No YAML response') {
+        function saveHistoryChanges(conversationId, jsonResponse) {
+            if (jsonResponse && jsonResponse !== 'No JSON response') {
                 socket.emit('save_changes', {
-                    yaml_response: yamlResponse,
+                    json_response: jsonResponse,
                     conversation_id: conversationId
                 });
             } else {
-                alert('No YAML response found for this conversation');
+                alert('No JSON response found for this conversation');
             }
         }
 
@@ -1993,15 +1992,15 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
-        function loadResponseToChat(conversationId, query, yamlResponse, modelUsed = null) {
+        function loadResponseToChat(conversationId, query, jsonResponse, modelUsed = null) {
             try {
                 // Clear current chat
                 chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
 
                 // Decode the parameters
                 const decodedQuery = query ? decodeURIComponent(query) : '';
-                const decodedYaml = yamlResponse && yamlResponse !== 'No YAML response' ?
-                    decodeURIComponent(yamlResponse) : '';
+                const decodedJson = jsonResponse && jsonResponse !== 'No JSON response' ?
+                    (typeof jsonResponse === 'string' ? JSON.parse(decodeURIComponent(jsonResponse)) : jsonResponse) : null;
 
                 // Add the user query
                 if(decodedQuery) {
@@ -2009,11 +2008,11 @@ class MultiProjectAIChatbotWebUI:
                 }
 
                 // Add the assistant response
-                if(decodedYaml) {
-                    addMessage('assistant', decodedYaml, true, conversationId, modelUsed);
-                    currentYamlResponse = decodedYaml;
+                if(decodedJson) {
+                    addMessage('assistant', decodedJson, true, conversationId, modelUsed);
+                    currentJsonResponse = decodedJson;
                 } else {
-                    addMessage('assistant', 'No YAML response available', false, conversationId);
+                    addMessage('assistant', 'No JSON response available', false, conversationId);
                 }
 
                 selectedConversationId = conversationId;
@@ -2080,17 +2079,27 @@ class MultiProjectAIChatbotWebUI:
                     const date = new Date(conv.created_at).toLocaleString();
                     const shortQuery = conv.query && conv.query.length > 50 ?
                         conv.query.substring(0, 50) + '...' : conv.query || 'No query';
-                    const shortYaml = conv.yaml_response && conv.yaml_response.length > 100 ?
-                        conv.yaml_response.substring(0, 100) + '...' : conv.yaml_response || 'No YAML response';
+
+                    // Handle JSON response
+                    let shortJson = 'No JSON response';
+                    if (conv.json_response) {
+                        try {
+                            const jsonResp = typeof conv.json_response === 'string' ?
+                                JSON.parse(conv.json_response) : conv.json_response;
+                            shortJson = JSON.stringify(jsonResp).substring(0, 100) + '...';
+                        } catch (e) {
+                            shortJson = 'Invalid JSON';
+                        }
+                    }
 
                     historyHTML += `
                         <div class="history-item"
                              data-conversation-id="${conv.id}"
                              data-query="${escapeHtml(conv.query || '')}"
-                             data-yaml="${escapeHtml(conv.yaml_response || '')}">
+                             data-json="${escapeHtml(JSON.stringify(conv.json_response || ''))}">
                             <strong>${date}</strong><br>
                             <strong>Q:</strong> ${shortQuery}<br>
-                            <strong>A:</strong> ${shortYaml}
+                            <strong>A:</strong> ${shortJson}
                             <div class="history-actions">
                                 <button class="load-chat-btn" onclick="loadResponseToChatFromData(this)">Load in Chat</button>
                                 <button class="apply-history-btn" onclick="applyHistoryChangesFromData(this)">Apply Changes</button>
@@ -2120,16 +2129,16 @@ class MultiProjectAIChatbotWebUI:
             const historyItem = button.closest('.history-item');
             const conversationId = historyItem.getAttribute('data-conversation-id');
             const query = historyItem.getAttribute('data-query');
-            const yamlResponse = historyItem.getAttribute('data-yaml');
+            const jsonResponse = historyItem.getAttribute('data-json');
 
             // Unescape HTML entities
             const unescapedQuery = unescapeHtml(query);
-            const unescapedYaml = unescapeHtml(yamlResponse);
+            const unescapedJson = unescapeHtml(jsonResponse);
 
             return {
                 conversationId: conversationId,
                 query: unescapedQuery,
-                yamlResponse: unescapedYaml
+                jsonResponse: unescapedJson
             };
         }
 
@@ -2143,21 +2152,21 @@ class MultiProjectAIChatbotWebUI:
         // Updated handler functions
         function loadResponseToChatFromData(button) {
             const data = getConversationData(button);
-            loadResponseToChat(data.conversationId, data.query, data.yamlResponse);
+            loadResponseToChat(data.conversationId, data.query, data.jsonResponse);
         }
 
         function applyHistoryChangesFromData(button) {
             const data = getConversationData(button);
-            applyHistoryChanges(data.conversationId, data.yamlResponse);
+            applyHistoryChanges(data.conversationId, data.jsonResponse);
         }
 
         function saveHistoryChangesFromData(button) {
             const data = getConversationData(button);
-            saveHistoryChanges(data.conversationId, data.yamlResponse);
+            saveHistoryChanges(data.conversationId, data.jsonResponse);
         }
 
         // Make the original functions more robust
-        function loadResponseToChat(conversationId, query, yamlResponse, modelUsed = null) {
+        function loadResponseToChat(conversationId, query, jsonResponse, modelUsed = null) {
             try {
                 // Clear current chat
                 chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
@@ -2168,11 +2177,12 @@ class MultiProjectAIChatbotWebUI:
                 }
 
                 // Add the assistant response
-                if(yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
-                    addMessage('assistant', yamlResponse, true, conversationId, modelUsed);
-                    currentYamlResponse = yamlResponse;
+                if(jsonResponse && jsonResponse !== 'No JSON response' && jsonResponse !== 'null' && jsonResponse !== 'undefined') {
+                    const jsonObj = typeof jsonResponse === 'string' ? JSON.parse(jsonResponse) : jsonResponse;
+                    addMessage('assistant', jsonObj, true, conversationId, modelUsed);
+                    currentJsonResponse = jsonObj;
                 } else {
-                    addMessage('assistant', 'No YAML response available', false, conversationId);
+                    addMessage('assistant', 'No JSON response available', false, conversationId);
                 }
 
                 selectedConversationId = conversationId;
@@ -2183,25 +2193,27 @@ class MultiProjectAIChatbotWebUI:
             }
         }
 
-        function applyHistoryChanges(conversationId, yamlResponse) {
-            if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+        function applyHistoryChanges(conversationId, jsonResponse) {
+            if (jsonResponse && jsonResponse !== 'No JSON response' && jsonResponse !== 'null' && jsonResponse !== 'undefined') {
+                const jsonObj = typeof jsonResponse === 'string' ? JSON.parse(jsonResponse) : jsonResponse;
                 socket.emit('apply_changes', {
-                    yaml_response: yamlResponse,
+                    json_response: jsonObj,
                     conversation_id: conversationId
                 });
             } else {
-                alert('No valid YAML response found for this conversation');
+                alert('No valid JSON response found for this conversation');
             }
         }
 
-        function saveHistoryChanges(conversationId, yamlResponse) {
-            if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+        function saveHistoryChanges(conversationId, jsonResponse) {
+            if (jsonResponse && jsonResponse !== 'No JSON response' && jsonResponse !== 'null' && jsonResponse !== 'undefined') {
+                const jsonObj = typeof jsonResponse === 'string' ? JSON.parse(jsonResponse) : jsonResponse;
                 socket.emit('save_changes', {
-                    yaml_response: yamlResponse,
+                    json_response: jsonObj,
                     conversation_id: conversationId
                 });
             } else {
-                alert('No valid YAML response found for this conversation');
+                alert('No valid JSON response found for this conversation');
             }
         }
 
@@ -2219,9 +2231,9 @@ class MultiProjectAIChatbotWebUI:
 
         socket.on('assistant_response', function(data) {
             hideTypingIndicator();
-            currentYamlResponse = data.yaml_response;
+            currentJsonResponse = data.json_response;
             selectedConversationId = null; // Reset for new conversation
-            addMessage('assistant', data.yaml_response, true, null, data.model_used);
+            addMessage('assistant', data.json_response, true, null, data.model_used);
 
             // Refresh chat history to show the new conversation
             socket.emit('get_all_conversations');
@@ -2279,7 +2291,7 @@ class MultiProjectAIChatbotWebUI:
         def handle_connect():
             session_id = request.sid
             self.sessions[session_id] = {
-                'current_yaml': ''
+                'current_json': ''
             }
             print(f"✅ Client connected: {session_id}")
 
@@ -2307,14 +2319,14 @@ class MultiProjectAIChatbotWebUI:
                     self.assistant.set_model(model_name)
 
                     # Process the query using auto-generate mode
-                    yaml_response = self.assistant.process_query(query, session_id, use_auto_generate=True)
+                    json_response = self.assistant.process_query(query, session_id, use_auto_generate=True)
 
-                    # Store the YAML response in session
-                    self.sessions[session_id] = {'current_yaml': yaml_response}
+                    # Store the JSON response in session
+                    self.sessions[session_id] = {'current_json': json_response}
 
                     # Send response back to client
                     emit('assistant_response', {
-                        'yaml_response': yaml_response,
+                        'json_response': json_response,
                         'session_id': session_id,
                         'model_used': model_name
                     }, room=session_id)
@@ -2337,13 +2349,13 @@ class MultiProjectAIChatbotWebUI:
             @copy_current_request_context
             def apply_changes_thread():
                 try:
-                    yaml_response = data['yaml_response']
+                    json_response = data['json_response']
                     session_id = request.sid
                     conversation_id = data.get('conversation_id')
-                    print(f"🔄 Applying changes from YAML response (Conversation ID: {conversation_id})...")
+                    print(f"🔄 Applying changes from JSON response (Conversation ID: {conversation_id})...")
 
                     # Apply changes using existing logic
-                    results = self.assistant.apply_changes(yaml_response)
+                    results = self.assistant.apply_changes(json_response)
 
                     # Store application results in PostgreSQL
                     if conversation_id:
@@ -2379,7 +2391,7 @@ class MultiProjectAIChatbotWebUI:
             @copy_current_request_context
             def save_changes_thread():
                 try:
-                    yaml_response = data['yaml_response']
+                    json_response = data['json_response']
                     conversation_id = data.get('conversation_id')
                     session_id = request.sid
 
@@ -2484,9 +2496,43 @@ class MultiProjectAIChatbotWebUI:
             thread.daemon = True
             thread.start()
 
+        @self.socketio.on('reset_db')
+        def handle_reset_db(data=None):
+            @copy_current_request_context
+            def reset_db_thread():
+                session_id = request.sid
+                results = {}
 
+                try:
+                    print("🧹 Executing reset_db.sh script...")
 
+                    # Run the shell script
+                    reset = subprocess.run(
+                        ['/bin/bash', '/home/opc/ai/reset_db.sh'],
+                        capture_output=True,
+                        text=True,
+                        timeout=300  # Adjust timeout if needed
+                    )
 
+                    # Capture stdout/stderr
+                    results['stdout'] = reset.stdout
+                    results['stderr'] = reset.stderr
+                    results['status'] = "script executed successfully" if reset.returncode == 0 else f"script failed with code {reset.returncode}"
+
+                    print(reset.stdout)
+                    if reset.stderr:
+                        print(f"❌ {reset.stderr}")
+
+                    emit('reset_db_results', {'results': results, 'session_id': session_id}, room=session_id)
+                    print("✅ reset_db.sh executed.")
+
+                except Exception as e:
+                    print(f"❌ Error executing reset_db.sh: {e}")
+                    emit('error', {'error': str(e)}, room=session_id)
+
+            thread = threading.Thread(target=reset_db_thread)
+            thread.daemon = True
+            thread.start()
 
         @self.socketio.on('migration_changes')
         def handle_migration_changes(data=None):
@@ -2578,7 +2624,6 @@ class MultiProjectAIChatbotWebUI:
             thread.daemon = True
             thread.start()
 
-
         @self.socketio.on('rollback_changes')
         def handle_rollback_changes(data=None):
             @copy_current_request_context
@@ -2595,7 +2640,6 @@ class MultiProjectAIChatbotWebUI:
                     for project_path in self.assistant.project_paths:
                         try:
                             # Rollback Rails migrations if any migrations have been applied
-
 
                             # Git checkout - revert all changes
                             git_checkout = subprocess.run(
@@ -2620,7 +2664,6 @@ class MultiProjectAIChatbotWebUI:
                         except Exception as e:
                             results['rollback_results'][project_path] = {'error': str(e)}
                             print(f"❌ Error during rollback in {project_path}: {e}")
-
 
                     # Update Redis cache after rollback
                     self.assistant.redis_manager.store_project_structure(self.assistant.project_paths, self.assistant.project_id)
@@ -2686,7 +2729,7 @@ def main():
     # PostgreSQL configuration
     parser.add_argument('--db-host', default='localhost', help='PostgreSQL host')
     parser.add_argument('--db-port', default=5432, type=int, help='PostgreSQL port')
-    parser.add_argument('--db-name', default='multi_project_ai_assistant', help='PostgreSQL database name')
+    parser.add_argument('--db-name', default='multi_project_ai_assistant_json', help='PostgreSQL database name')
     parser.add_argument('--db-user', default='postgres', help='PostgreSQL username')
     parser.add_argument('--db-password', default='password', help='PostgreSQL password')
 
@@ -2742,7 +2785,7 @@ def main():
                     print("\n" + "="*60)
                     print("📋 IMPLEMENTATION DETAILS:")
                     print("="*60)
-                    print(response)
+                    print(json.dumps(response, indent=2))
 
                     # Ask user if they want to apply changes
                     print("\n" + "="*60)
