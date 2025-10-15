@@ -697,6 +697,18 @@ class OllamaAnalyzer:
         ]
         self.model = "qwen3-coder:480b-cloud"
 
+    @staticmethod
+    def clean_yaml_response(yaml_response: str) -> str:
+        """
+        Remove Markdown fences and extra whitespace from YAML response.
+        """
+        lines = yaml_response.splitlines()
+        if lines and lines[0].startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].startswith("```"):
+            lines = lines[:-1]
+        return "\n".join(lines).strip()
+
     def set_model(self, model_name: str):
         """Set the model to use for analysis"""
         if model_name in self.available_models:
@@ -744,7 +756,13 @@ class OllamaAnalyzer:
 
         # Step 3: Send to Ollama with intent-aware prompt
         yaml_output = self.analyze_and_generate_changes(user_query, project_context, project_roots, intent)
+        yaml_output = self.clean_yaml_response(yaml_output)
+
+        print(yaml_output)
         return yaml_output
+
+
+
 
     def _get_key_files_for_project(self, project_root: str, project_type: str) -> List[str]:
         """Get key files for different project types"""
@@ -775,7 +793,7 @@ class OllamaAnalyzer:
         print(11111111111111111111)
         print(project_roots)
 
-        # Find which projects are React and which are Rails
+        # Detect React and Rails projects
         react_projects = [p for p in project_roots if any(x in p.lower() for x in ['react', 'src/', 'components/'])]
         rails_projects = [p for p in project_roots if any(x in p.lower() for x in ['rails', 'app/', 'config/', 'db/'])]
         react_projects = ['my-blue-app/']
@@ -784,7 +802,6 @@ class OllamaAnalyzer:
         print(rails_projects)
         print(333333333333)
 
-        # If we can't determine, assume first is React, second is Rails
         if not react_projects and not rails_projects:
             if len(project_roots) >= 2:
                 react_projects = [project_roots[0]]
@@ -793,114 +810,113 @@ class OllamaAnalyzer:
                 react_projects = project_roots
                 rails_projects = []
 
-        print(react_projects)
-        system_prompt = f"""You are an expert full-stack developer working with both React.js and Ruby on Rails applications.
-Analyze the user's request and the current project structures, then provide ONLY the specific file changes and required packages in YAML format.
+        # Helper to find component file
+        def find_component_file(component_name: str):
+            for path in react_projects:
+                candidate = os.path.join(path, "src", "components", f"{component_name}.js")
+                if os.path.exists(candidate):
+                    return candidate
+            return None
 
-Available Projects:
-React: {', '.join(react_projects) if react_projects else 'None'}
-Rails: {', '.join(rails_projects) if rails_projects else 'None'}
+        # Helper to indent YAML block content
+        def indent_content(content: str, spaces: int = 6) -> str:
+            """
+            Properly indent multi-line code for YAML block.
+            Strips leading empty lines and ensures consistent indentation.
+            """
+            lines = content.splitlines()
+            # Remove leading/trailing empty lines
+            while lines and lines[0].strip() == "":
+                lines.pop(0)
+            while lines and lines[-1].strip() == "":
+                lines.pop()
 
-Query Intent Analysis:
-- Requires Frontend Changes: {intent['frontend']}
-- Requires Backend Changes: {intent['backend']}
-- Fullstack Feature: {intent['fullstack']}
+            indent = " " * spaces
+            # Add indentation to every line
+            indented_lines = [(indent + line if line.strip() != "" else "") for line in lines]
+            return "\n".join(indented_lines)
 
-IMPORTANT: Based on the intent analysis, focus on the appropriate projects:
-{"**FRONTEND FOCUS** - Primarily modify React files" if intent['frontend'] and not intent['backend'] else ""}
-{"**BACKEND FOCUS** - Primarily modify Rails files" if intent['backend'] and not intent['frontend'] else ""}
-{"**FULLSTACK FOCUS** - Modify both React and Rails files" if intent['fullstack'] else ""}
+        # Build YAML-ready prompt including existing file content
+        import json
+        try:
+            requirements_json = json.loads(prompt).get("requirements", [])
+        except Exception:
+            requirements_json = []
 
-Respond ONLY with valid YAML in this exact format:
 
-projects:
-  - project_path: "{react_projects[0] if react_projects else '.'}"
-    project_type: "react"
-    files:
-      - path: "src/components/Component.js"
-        content: |
-          // Full file content with changes
-          import React from 'react';
+        yaml_requirements = ""
+        for req in requirements_json:
+            component = req.get("component", "UnknownComponent")
+            requirement_text = req.get("requirement", "")
+            file_path = find_component_file(component)
+            if file_path:
+                with open(file_path, "r") as f:
+                    existing_content = f.read()
+            else:
+                existing_content = req.get("text", "// No existing content found")
 
-          const Component = () => {{
-            return <div>Content</div>;
-          }};
+            # Properly indent everything under 'content: |'
+            yaml_requirements += f"""
+          - component: "{component}"
+            query: "{requirement_text}"
+            content: |
+        {indent_content(existing_content, spaces=6)}
+        """
 
-          export default Component;
+        system_prompt = f"""
+        You are an expert full-stack developer working with both React.js and Ruby on Rails applications.
 
-  - project_path: "{rails_projects[0] if rails_projects else ''}"
-    project_type: "rails"
-    files:
-      - path: "app/controllers/some_controller.rb"
-        content: |
-          class SomeController < ApplicationController
-            def index
-              # Controller code here
-            end
-          end
+        Your job:
+        - For each requirement, you will receive the component name, a query (requirement), the full existing file content, and optionally a reference component.
+        - Apply the requested change directly into the code.
+        - When a reference component is provided, use it as a guide for styling, structure, or logic, but adapt it appropriately for the target component.
+        - Respond ONLY with valid YAML, structured for direct application, including:
+          projects:
+            - project_path: /media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app
+              project_type: /media/shivareddy/E/oct-2025/15_evg/oct/my_api_app
+              files:
+                - path: <relative_file_path_from_project_root>
+                  content: |
+                    <full updated file content>
+          install_commands:
+            - echo 'No additional packages required'
+          packages:
+            rails_gems: []
+            react_dependencies: []
+            react_devDependencies: []
 
-packages:
-  react_dependencies:
-    - "package-name@version"
-  react_devDependencies:
-    - "@types/package@version"
-  rails_gems:
-    - "gem-name"
+        USER REQUIREMENTS:
+        {yaml_requirements}
 
-install_commands:
-  - "cd {react_projects[0] if react_projects else '.'} && npm install package-name@version"
-  - "cd {rails_projects[0] if rails_projects else '.'} && bundle add gem-name"
+        Rules:
+        1. Output strictly YAML — no Markdown, no explanations, no extra text.
+        2. Each file must include full updated content (including imports, existing logic, formatting).
+        3. If a reference component is provided, incorporate its structure or behavior appropriately.
+        4. Support multiple requirements/components sequentially.
+        5. Keep indentation consistent and valid for YAML.
+        """
 
-Rules:
-1. {"Focus on React files only" if intent['frontend'] and not intent['backend'] else ""}
-2. {"Focus on Rails files only" if intent['backend'] and not intent['frontend'] else ""}
-3. {"Create both frontend and backend files" if intent['fullstack'] else ""}
-4. Provide COMPLETE file content, not just diffs
-5. For existing files, include the entire content with changes
-6. Use proper file paths relative to each project root
-7. Include all necessary imports and dependencies
-8. Make sure the code is syntactically correct for each project type
-9. For React: use proper React patterns and JSX syntax
-10. For Rails: use proper Ruby syntax and Rails conventions
-11. Include required packages/gems in the appropriate sections
-12. Provide exact install commands with proper cd commands for each project
-13. Only include packages that are actually needed for the implementation
-14. Check if packages are already in package.json/Gemfile before including
-15. If creating API endpoints in Rails, ensure they work with React frontend
-16. For database changes in Rails, include migration files if needed
-17. For Rails: we dont have authentication so just create apis without any authentication changes
-
-Do not include any explanations, analysis, or text outside the YAML format."""
-
-        full_prompt = f"""MULTI-PROJECT CONTEXT:
-{project_context}
-
-USER REQUEST: {prompt}
-
-QUERY INTENT:
-- Frontend changes needed: {intent['frontend']}
-- Backend changes needed: {intent['backend']}
-- Fullstack feature: {intent['fullstack']}
-
-Generate the appropriate file changes and required packages in YAML format:"""
-
+        print("fulllllllllllllllllllllllllllllll")
+        print(system_prompt)
         try:
             response = requests.post(
                 f"{self.base_url}/api/generate",
                 json={
                     "model": self.model,
-                    "prompt": full_prompt,
-                    "system": system_prompt,
+                    "prompt": system_prompt,
                     "stream": False
                 },
-                timeout=10000  # 2 minute timeout
+                timeout=10000
             )
             response.raise_for_status()
-            return response.json()["response"]
+            print("rrerrrrrrrrrrrrrrrrrr")
+            print(response.json())
+            return response.json().get("response", "")
         except requests.exceptions.Timeout:
             return "Error: Request timeout - Ollama server took too long to respond"
         except Exception as e:
             return f"Error: {e}"
+
 
 class MultiProjectAIAssistant:
     def __init__(self, project_paths: List[str], redis_host='localhost', redis_port=6379,
@@ -1730,6 +1746,7 @@ class MultiProjectAIChatbotWebUI:
                         <option value="deepseek-v3.1:671b-cloud">deepseek-v3.1:671b-cloud</option>
                         <option value="qwen3-coder:480b-cloud" selected>qwen3-coder:480b-cloud</option>
                         <option value="kimi-k2:1t-cloud">kimi-k2:1t-cloud</option>
+                        <option value="qwen3-vl:235b-cloud">qwen3-vl:235b-cloud</option>
                     </select>
                 </div>
                 <div class="input-group">

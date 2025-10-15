@@ -1,5 +1,4 @@
 (() => {
-    // Activate only in localhost / dev mode
     if (!["localhost", "127.0.0.1"].includes(window.location.hostname)) return;
 
     console.log("🧠 Dev Click Assistant active");
@@ -8,6 +7,7 @@
     let selections = JSON.parse(localStorage.getItem("dev_requirements") || "[]");
     let activeInputBox = null;
     let toolbar = null;
+    let referenceComponent = JSON.parse(localStorage.getItem("dev_reference_component") || "null");
 
     // ===== Utilities =====
     const saveSelections = () => localStorage.setItem("dev_requirements", JSON.stringify(selections));
@@ -63,9 +63,10 @@
 
     // ===== Floating input =====
     function showInputBox(x, y, target, comp, path) {
-        if (activeInputBox) activeInputBox.remove();
+        if (activeInputBox) return; // Prevent multiple boxes
 
         const box = document.createElement("div");
+        box.classList.add("dev-input-box");
         Object.assign(box.style, {
             position: "fixed",
             left: `${x + 10}px`,
@@ -75,39 +76,31 @@
             padding: "10px",
             borderRadius: "6px",
             zIndex: 1000000,
-            width: "300px",
+            width: "350px",
             fontFamily: "sans-serif",
             fontSize: "13px",
             boxShadow: "0 2px 10px rgba(0,0,0,0.6)",
         });
+
         box.innerHTML = `
       <div><b>${comp}</b></div>
-      <textarea
-        placeholder="Describe what should be done..."
-        style="
-          width:100%;
-          margin-top:6px;
-          padding:6px;
-          border:none;
-          border-radius:4px;
-          outline:none;
-          resize:none;
-          height:60px;
-          font-size:13px;
-          background:#222;
-          color:#fff;
-        "
-      ></textarea>
+      <textarea placeholder="Describe what should be done..." style="
+          width:100%; margin-top:6px; padding:6px; border:none; border-radius:4px;
+          outline:none; resize:none; height:60px; font-size:13px; background:#222; color:#fff;">
+      </textarea>
       <div style="text-align:right;margin-top:6px;">
         <button id="saveBtn" style="padding:4px 8px;background:#00e0ff;border:none;border-radius:4px;cursor:pointer;">Save</button>
+        <button id="referenceBtn" style="padding:4px 8px;background:#ffaa00;border:none;border-radius:4px;cursor:pointer;">Use as Reference</button>
         <button id="cancelBtn" style="padding:4px 8px;background:#666;border:none;border-radius:4px;cursor:pointer;color:#fff;">Cancel</button>
       </div>
     `;
+
         document.body.appendChild(box);
         activeInputBox = box;
         const textarea = box.querySelector("textarea");
         textarea.focus();
 
+        // ===== Save requirement =====
         box.querySelector("#saveBtn").onclick = () => {
             const text = textarea.value.trim();
             if (!text) return alert("Please describe the requirement.");
@@ -117,15 +110,27 @@
                 text: target.innerText,
                 requirement: text,
                 url: window.location.pathname,
+                referenceComponent: referenceComponent ? referenceComponent.name : null
             });
             saveSelections();
             updateCount();
-            box.remove();
+            activeInputBox.remove();
+            activeInputBox = null;
+        };
+
+        // ===== Save as reference component =====
+        box.querySelector("#referenceBtn").onclick = () => {
+            const text = target.innerText.trim();
+            if (!text) return alert("Cannot use empty component as reference.");
+            referenceComponent = { name: comp, text };
+            localStorage.setItem("dev_reference_component", JSON.stringify(referenceComponent));
+            alert(`✅ ${comp} saved as reference component`);
+            activeInputBox.remove();
             activeInputBox = null;
         };
 
         box.querySelector("#cancelBtn").onclick = () => {
-            box.remove();
+            activeInputBox.remove();
             activeInputBox = null;
         };
     }
@@ -133,11 +138,12 @@
     // ===== Toolbar =====
     function buildToolbar() {
         toolbar = document.createElement("div");
+        toolbar.classList.add("dev-toolbar");
         Object.assign(toolbar.style, {
             position: "fixed",
             bottom: "15px",
             right: "15px",
-            zIndex: "1000001",
+            zIndex: 1000001,
             background: "rgba(30,30,30,0.95)",
             color: "#fff",
             padding: "10px 12px",
@@ -207,6 +213,7 @@
             item.innerHTML = `
         <b>${i + 1}. ${s.component}</b> <small style="color:#aaa;">(${s.url})</small>
         <div style="margin:5px 0;">${s.requirement}</div>
+        ${s.referenceComponent ? `<small style="color:#0f0;">Reference: ${s.referenceComponent}</small>` : ""}
         <button style="background:#f33;color:#fff;border:none;padding:3px 6px;border-radius:4px;cursor:pointer;">Delete</button>
       `;
             item.querySelector("button").onclick = () => {
@@ -249,20 +256,16 @@
     }
 
     // ===== Click handler =====
-    document.addEventListener(
-        "click",
-        e => {
-            if (activeInputBox) return;
-            e.preventDefault();
-            e.stopPropagation();
+    document.addEventListener("click", e => {
+        // Ignore clicks inside active input box or toolbar
+        if (activeInputBox || e.target.closest(".dev-input-box") || e.target.closest(".dev-toolbar")) return;
+        if (e.button !== 0) return; // left click only
 
-            const comp = getReactComponentName(e.target) || "Unknown";
-            highlight(e.target);
-            const path = domPath(e.target);
-            showInputBox(e.clientX, e.clientY, e.target, comp, path);
-        },
-        true
-    );
+        const comp = getReactComponentName(e.target) || "Unknown";
+        highlight(e.target);
+        const path = domPath(e.target);
+        showInputBox(e.clientX, e.clientY, e.target, comp, path);
+    }, true);
 
     // ===== Build toolbar on load =====
     window.addEventListener("DOMContentLoaded", buildToolbar);
