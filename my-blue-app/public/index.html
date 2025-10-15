@@ -1,43 +1,279 @@
 <!DOCTYPE html>
 <html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="theme-color" content="#000000" />
-    <meta
-      name="description"
-      content="Web site created using create-react-app"
-    />
-    <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
-    <!--
-      manifest.json provides metadata used when your web app is installed on a
-      user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
-    -->
-    <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
-    <!--
-      Notice the use of %PUBLIC_URL% in the tags above.
-      It will be replaced with the URL of the `public` folder during the build.
-      Only files inside the `public` folder can be referenced from the HTML.
+<head>
+  <meta charset="utf-8" />
+  <link rel="icon" href="%PUBLIC_URL%/favicon.ico" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="theme-color" content="#000000" />
+  <meta
+          name="description"
+          content="Web site created using create-react-app"
+  />
+  <link rel="apple-touch-icon" href="%PUBLIC_URL%/logo192.png" />
+  <!--
+    manifest.json provides metadata used when your web app is installed on a
+    user's mobile device or desktop. See https://developers.google.com/web/fundamentals/web-app-manifest/
+  -->
+  <link rel="manifest" href="%PUBLIC_URL%/manifest.json" />
+  <!--
+    Notice the use of %PUBLIC_URL% in the tags above.
+    It will be replaced with the URL of the `public` folder during the build.
+    Only files inside the `public` folder can be referenced from the HTML.
 
-      Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
-      work correctly both with client-side routing and a non-root public URL.
-      Learn how to configure a non-root public URL by running `npm run build`.
-    -->
-    <title>React App</title>
-  </head>
-  <body>
-    <noscript>You need to enable JavaScript to run this app.</noscript>
-    <div id="root"></div>
-    <!--
-      This HTML file is a template.
-      If you open it directly in the browser, you will see an empty page.
+    Unlike "/favicon.ico" or "favicon.ico", "%PUBLIC_URL%/favicon.ico" will
+    work correctly both with client-side routing and a non-root public URL.
+    Learn how to configure a non-root public URL by running `npm run build`.
+  -->
+  <title>React App</title>
+</head>
+<body>
+<noscript>You need to enable JavaScript to run this app.</noscript>
+<div id="root"></div>
+<!--
+  This HTML file is a template.
+  If you open it directly in the browser, you will see an empty page.
 
-      You can add webfonts, meta tags, or analytics to this file.
-      The build step will place the bundled scripts into the <body> tag.
+  You can add webfonts, meta tags, or analytics to this file.
+  The build step will place the bundled scripts into the <body> tag.
 
-      To begin the development, run `npm start` or `yarn start`.
-      To create a production bundle, use `npm run build` or `yarn build`.
-    -->
-  </body>
+  To begin the development, run `npm start` or `yarn start`.
+  To create a production bundle, use `npm run build` or `yarn build`.
+-->
+<script src="%PUBLIC_URL%/dev-click-assistant.js"></script>
+
+<script>
+  (function() {
+    let selections = JSON.parse(localStorage.getItem("dev_requirements") || "[]");
+    let activeInputBox = null;
+    let toolbar = null;
+
+    // Utility: save all to localStorage
+    function saveSelections() {
+      localStorage.setItem("dev_requirements", JSON.stringify(selections));
+    }
+
+    // Utility: unique DOM path (rough component locator)
+    function getDomPath(el) {
+      if (!el) return "";
+      const stack = [];
+      while (el.parentNode != null) {
+        let sibCount = 0;
+        let sibIndex = 0;
+        for (let i = 0; i < el.parentNode.childNodes.length; i++) {
+          const sib = el.parentNode.childNodes[i];
+          if (sib.nodeName === el.nodeName) {
+            if (sib === el) sibIndex = sibCount;
+            sibCount++;
+          }
+        }
+        const nodeName = el.nodeName.toLowerCase();
+        if (el.id) stack.unshift(`${nodeName}#${el.id}`);
+        else if (sibCount > 1) stack.unshift(`${nodeName}:nth-of-type(${sibIndex+1})`);
+        else stack.unshift(nodeName);
+        el = el.parentNode;
+      }
+      return stack.slice(1).join(" > ");
+    }
+
+    // Detect "component" name
+    function guessComponentName(el) {
+      let comp = el.getAttribute("data-component") || el.tagName.toLowerCase();
+      if (el.className) comp += " (" + el.className + ")";
+      return comp;
+    }
+
+    // Input popup
+    function showInputBox(x, y, target, componentName, domPathStr) {
+      if (activeInputBox) activeInputBox.remove();
+
+      const box = document.createElement("div");
+      box.style.position = "fixed";
+      box.style.left = `${x + 10}px`;
+      box.style.top = `${y + 10}px`;
+      box.style.background = "rgba(20,20,20,0.95)";
+      box.style.padding = "10px";
+      box.style.borderRadius = "8px";
+      box.style.color = "#fff";
+      box.style.zIndex = 1000000;
+      box.style.width = "300px";
+      box.style.fontFamily = "sans-serif";
+      box.style.fontSize = "13px";
+      box.style.boxShadow = "0 4px 10px rgba(0,0,0,0.5)";
+      box.innerHTML = `
+      <div><b>${componentName}</b></div>
+      <textarea placeholder="Describe what should be done..."
+        style="
+          width:100%;
+          margin-top:8px;
+          padding:8px;
+          border:none;
+          border-radius:4px;
+          outline:none;
+          resize:none;
+          height:60px;
+          font-size:13px;
+          background:#222;
+          color:#fff;
+        "></textarea>
+      <div style="text-align:right;margin-top:8px;">
+        <button id="saveReq" style="padding:5px 10px;background:#00e0ff;border:none;border-radius:4px;cursor:pointer;">Save</button>
+        <button id="cancelReq" style="padding:5px 10px;background:#666;border:none;border-radius:4px;cursor:pointer;color:#fff;">Cancel</button>
+      </div>
+    `;
+      document.body.appendChild(box);
+      activeInputBox = box;
+
+      const textarea = box.querySelector("textarea");
+      textarea.focus();
+
+      box.querySelector("#saveReq").onclick = () => {
+        const req = textarea.value.trim();
+        if (!req) {
+          alert("Please describe what should be done for this component.");
+          return;
+        }
+        selections.push({
+          component: componentName,
+          domPath: domPathStr,
+          text: target.innerText,
+          requirement: req,
+          url: window.location.pathname
+        });
+        saveSelections();
+        activeInputBox.remove();
+        activeInputBox = null;
+        updateToolbar();
+      };
+
+      box.querySelector("#cancelReq").onclick = () => {
+        activeInputBox.remove();
+        activeInputBox = null;
+      };
+    }
+
+    // Toolbar UI
+    function createToolbar() {
+      toolbar = document.createElement("div");
+      toolbar.style.position = "fixed";
+      toolbar.style.bottom = "20px";
+      toolbar.style.right = "20px";
+      toolbar.style.zIndex = 1000001;
+      toolbar.style.background = "rgba(30,30,30,0.95)";
+      toolbar.style.padding = "10px 12px";
+      toolbar.style.borderRadius = "8px";
+      toolbar.style.color = "#fff";
+      toolbar.style.fontFamily = "sans-serif";
+      toolbar.style.fontSize = "13px";
+      toolbar.style.boxShadow = "0 2px 8px rgba(0,0,0,0.5)";
+      toolbar.innerHTML = `
+      <span id="reqCount">🧠 0</span> requirements
+      <button id="viewReqs" style="margin-left:8px;background:#00e0ff;border:none;padding:5px 8px;border-radius:4px;cursor:pointer;">Review</button>
+      <button id="sendReqs" style="margin-left:6px;background:#4CAF50;border:none;padding:5px 8px;border-radius:4px;cursor:pointer;color:#fff;">Send</button>
+    `;
+      document.body.appendChild(toolbar);
+      toolbar.querySelector("#viewReqs").onclick = showReviewModal;
+      toolbar.querySelector("#sendReqs").onclick = sendRequirements;
+      updateToolbar();
+    }
+
+    function updateToolbar() {
+      if (toolbar) toolbar.querySelector("#reqCount").innerText = `🧠 ${selections.length}`;
+    }
+
+    // Review modal
+    function showReviewModal() {
+      const modal = document.createElement("div");
+      modal.style.position = "fixed";
+      modal.style.left = 0;
+      modal.style.top = 0;
+      modal.style.width = "100%";
+      modal.style.height = "100%";
+      modal.style.background = "rgba(0,0,0,0.7)";
+      modal.style.zIndex = 1000002;
+      modal.style.display = "flex";
+      modal.style.justifyContent = "center";
+      modal.style.alignItems = "center";
+
+      const box = document.createElement("div");
+      box.style.background = "#222";
+      box.style.color = "#fff";
+      box.style.padding = "20px";
+      box.style.borderRadius = "8px";
+      box.style.width = "500px";
+      box.style.maxHeight = "80%";
+      box.style.overflowY = "auto";
+      box.innerHTML = `<h3>📝 Review Requirements</h3><hr style="margin:10px 0;border-color:#444;">`;
+
+      selections.forEach((s, i) => {
+        const item = document.createElement("div");
+        item.style.marginBottom = "10px";
+        item.innerHTML = `
+        <b>${i+1}. ${s.component}</b> <small style="color:#aaa;">(${s.url})</small>
+        <div style="margin:5px 0;">${s.requirement}</div>
+        <button style="background:#f33;color:#fff;border:none;padding:3px 6px;border-radius:4px;cursor:pointer;">Delete</button>
+      `;
+        item.querySelector("button").onclick = () => {
+          selections.splice(i, 1);
+          saveSelections();
+          modal.remove();
+          updateToolbar();
+          showReviewModal();
+        };
+        box.appendChild(item);
+      });
+
+      const closeBtn = document.createElement("button");
+      closeBtn.innerText = "Close";
+      closeBtn.style = "margin-top:10px;padding:5px 10px;background:#666;border:none;border-radius:4px;cursor:pointer;color:#fff;";
+      closeBtn.onclick = () => modal.remove();
+      box.appendChild(closeBtn);
+      modal.appendChild(box);
+      document.body.appendChild(modal);
+    }
+
+    // Send data to your Python LLM endpoint
+    async function sendRequirements() {
+      if (!selections.length) return alert("No requirements to send!");
+      try {
+        const res = await fetch("http://localhost:5000/api/llm_requirements", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ requirements: selections }),
+        });
+
+        const html = await res.text(); // <-- read as text
+        const reviewWindow = window.open("", "_blank"); // open a new tab
+        reviewWindow.document.write(html); // write the HTML review UI
+        reviewWindow.document.close(); // finish writing
+
+        alert("✅ Sent to LLM agent successfully!");
+        selections = [];
+        saveSelections();
+        updateToolbar();
+      } catch (err) {
+        console.error("❌ Send failed:", err);
+        alert("❌ Failed to send to backend");
+      }
+    }
+
+
+    // Global click listener
+    document.addEventListener("click", e => {
+      if (e.ctrlKey) { // hold Ctrl to select component
+        e.preventDefault();
+        e.stopPropagation();
+        const comp = guessComponentName(e.target);
+        const path = getDomPath(e.target);
+        showInputBox(e.pageX, e.pageY, e.target, comp, path);
+      }
+    }, true);
+
+    createToolbar();
+  })();
+</script>
+
+<!-- index.html -->
+<script src="%PUBLIC_URL%/dev-click-assistant.js"></script>
+
+</body>
 </html>
