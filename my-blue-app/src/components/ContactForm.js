@@ -4,22 +4,28 @@ const ContactForm = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
-    description: ''
+    description: '',
+    agreeTerms: false
   });
   const [message, setMessage] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   const handleChange = (e) => {
+    const { name, value, type, checked } = e.target;
     setFormData({
       ...formData,
-      [e.target.name]: e.target.value
+      [name]: type === 'checkbox' ? checked : value
     });
   };
 
   const handleSubmit = async (e) => {
     e.preventDefault();
+    if (!formData.agreeTerms) {
+      setMessage('You must agree to the terms and conditions.');
+      return;
+    }
     setIsSubmitting(true);
-    
+
     try {
       const response = await fetch('http://localhost:3000/api/contacts', {
         method: 'POST',
@@ -31,7 +37,7 @@ const ContactForm = () => {
 
       if (response.ok) {
         setMessage('Thank you for your message! We will get back to you soon.');
-        setFormData({ name: '', email: '', description: '' });
+        setFormData({ name: '', email: '', description: '', agreeTerms: false });
       } else {
         setMessage('Sorry, there was an error sending your message. Please try again.');
       }
@@ -86,6 +92,23 @@ const ContactForm = () => {
             rows="4"
             className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
           />
+        </div>
+        <div className="mb-4 flex items-start">
+          <div className="flex items-center h-5">
+            <input
+              id="agreeTerms"
+              name="agreeTerms"
+              type="checkbox"
+              checked={formData.agreeTerms}
+              onChange={handleChange}
+              className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500"
+            />
+          </div>
+          <div className="ml-3 text-sm">
+            <label htmlFor="agreeTerms" className="font-medium text-gray-700">
+              I agree to the terms and conditions
+            </label>
+          </div>
         </div>
         <button
           type="submit"
