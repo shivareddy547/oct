@@ -14,6 +14,8 @@
     let referenceComponents = JSON.parse(localStorage.getItem("dev_reference_components") || "{}");
     let activeInputBox = null;
     let toolbar = null;
+    let globalFeatureRequest = "";
+    let globalFeatureDetails = "";
 
     // ===== Utilities =====
     const saveSelections = () => {
@@ -201,14 +203,14 @@
         box.className = "dev-input-box";
         Object.assign(box.style, {
             position: "fixed",
-            left: `${Math.min(x + 10, window.innerWidth - 420)}px`,
-            top: `${Math.min(y + 10, window.innerHeight - 320)}px`,
+            left: `${Math.min(x + 10, window.innerWidth - 450)}px`,
+            top: `${Math.min(y + 10, window.innerHeight - 350)}px`,
             background: "rgba(25, 25, 35, 0.98)",
             color: "#fff",
             padding: "15px",
             borderRadius: "8px",
             zIndex: 1000000,
-            width: "400px",
+            width: "430px",
             fontFamily: "system-ui, sans-serif",
             fontSize: "14px",
             boxShadow: "0 8px 25px rgba(0,0,0,0.5)",
@@ -231,8 +233,8 @@
             </div>` : ''}
             
             <div style="margin-bottom: 8px;">
-                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Request Type</label>
-                <select id="featureType" style="
+                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Request (Global)</label>
+                <input type="text" id="featureRequest" placeholder="Overall feature description..." value="${globalFeatureRequest}" style="
                     width: 100%; 
                     padding: 8px;
                     border: 1px solid #555; 
@@ -243,17 +245,27 @@
                     color: #fff;
                     font-family: inherit;
                 ">
-                    <option value="new_feature">New Feature</option>
-                    <option value="enhancement">Enhancement</option>
-                    <option value="bug_fix">Bug Fix</option>
-                    <option value="ui_improvement">UI Improvement</option>
-                    <option value="performance">Performance</option>
-                    <option value="other">Other</option>
-                </select>
+            </div>
+            
+            <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Details (Global)</label>
+                <textarea id="featureDetails" placeholder="Detailed feature specifications..." style="
+                    width: 100%; 
+                    padding: 8px;
+                    border: 1px solid #555; 
+                    border-radius: 4px;
+                    outline: none; 
+                    resize: vertical; 
+                    height: 60px; 
+                    font-size: 13px; 
+                    background: #1a1a2a; 
+                    color: #fff;
+                    font-family: inherit;
+                ">${globalFeatureDetails}</textarea>
             </div>
             
             <textarea 
-                placeholder="Describe the feature requirements in detail..." 
+                placeholder="Describe what should be changed or added to this component..." 
                 style="
                     width: 100%; 
                     margin: 8px 0; 
@@ -320,22 +332,23 @@
         // Event handlers
         box.querySelector("#saveBtn").onclick = () => {
             const requirementText = textarea.value.trim();
-            const featureType = box.querySelector("#featureType").value;
+            const featureRequest = box.querySelector("#featureRequest").value.trim();
+            const featureDetails = box.querySelector("#featureDetails").value.trim();
 
             if (!requirementText) {
                 showNotification("Please describe the requirement", "warning");
                 return;
             }
 
+            // Update global feature request and details
+            if (featureRequest) globalFeatureRequest = featureRequest;
+            if (featureDetails) globalFeatureDetails = featureDetails;
+
             selections.push({
                 component: componentName,
+                text: elementText,
                 requirement: requirementText,
-                feature_request: featureType,
-                feature_details: {
-                    component_name: componentName,
-                    element_text: elementText,
-                    reference_component: isReference ? componentName : null
-                }
+                referenceComponent: isReference ? componentName : null
             });
 
             saveSelections();
@@ -353,7 +366,6 @@
                 referenceComponents[componentName] = {
                     name: componentName,
                     text: elementText,
-                    url: window.location.pathname,
                     timestamp: new Date().toISOString()
                 };
                 showNotification(`⭐ ${componentName} set as reference component`, "success");
@@ -486,6 +498,8 @@
                 if (confirm("Clear all requirements and references?")) {
                     clearSelections();
                     referenceComponents = {};
+                    globalFeatureRequest = "";
+                    globalFeatureDetails = "";
                     saveReferenceComponents();
                     updateCount();
                     showNotification("🧹 All requirements and references cleared", "info");
@@ -531,7 +545,7 @@
             padding: "25px",
             borderRadius: "12px",
             width: "90%",
-            maxWidth: "600px",
+            maxWidth: "700px",
             maxHeight: "80%",
             overflowY: "auto",
             border: "1px solid #444",
@@ -555,10 +569,24 @@
                     justify-content: center;
                 ">×</button>
             </div>
-            <div style="margin-bottom: 20px; font-size: 14px; color: #aaa; display: flex; gap: 15px;">
-                <span>📋 ${selections.length} requirement(s)</span>
-                <span>⭐ ${Object.keys(referenceComponents).length} reference(s)</span>
+            
+            <div style="margin-bottom: 20px;">
+                <div style="font-size: 14px; color: #aaa; display: flex; gap: 15px; margin-bottom: 15px;">
+                    <span>📋 ${selections.length} requirement(s)</span>
+                    <span>⭐ ${Object.keys(referenceComponents).length} reference(s)</span>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="font-size: 14px; color: #00e0ff; margin-bottom: 8px; font-weight: bold;">Feature Request</div>
+                    <div style="font-size: 13px; color: #ccc;">${globalFeatureRequest || "Not set"}</div>
+                </div>
+                
+                <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
+                    <div style="font-size: 14px; color: #00e0ff; margin-bottom: 8px; font-weight: bold;">Feature Details</div>
+                    <div style="font-size: 13px; color: #ccc;">${globalFeatureDetails || "Not set"}</div>
+                </div>
             </div>
+            
             <div id="requirementsList" style="min-height: 100px;"></div>
             <div style="margin-top: 20px; text-align: right; border-top: 1px solid #444; padding-top: 15px;">
                 <button id="exportJson" style="
@@ -611,10 +639,7 @@
                         <div style="flex: 1;">
                             <b style="color: #00e0ff; font-size: 15px;">${req.component}</b>
                             <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                                <span style="background: #666; color: #fff; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">
-                                    ${req.feature_request}
-                                </span>
-                                ${req.feature_details.reference_component ?
+                                ${req.referenceComponent ?
                     `<span style="background: #ffaa00; color: #000; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">REFERENCE</span>` :
                     ''
                 }
@@ -634,9 +659,9 @@
                     <div style="margin: 10px 0; font-size: 14px; line-height: 1.4; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px;">
                         ${req.requirement}
                     </div>
-                    ${req.feature_details.element_text ? `
+                    ${req.text ? `
                     <div style="font-size: 12px; color: #ccc; margin-bottom: 8px; padding: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
-                        📝 "${req.feature_details.element_text}"
+                        📝 "${req.text}"
                     </div>
                     ` : ''}
                 `;
@@ -819,18 +844,26 @@
         try {
             showNotification("📤 Sending requirements to backend...", "info");
 
-            // Construct the simplified payload without domPath, url, timestamp, meta data
+            // Construct the payload according to json1 structure
             const payload = {
+                feature_request: globalFeatureRequest,
                 requirements: selections.map(req => ({
                     component: req.component,
+                    text: req.text,
                     requirement: req.requirement,
-                    feature_request: req.feature_request,
-                    feature_details: req.feature_details
+                    referenceComponent: req.referenceComponent
                 })),
-                reference_components: Object.keys(referenceComponents).map(key => ({
-                    name: referenceComponents[key].name,
-                    text: referenceComponents[key].text
-                }))
+                referenceComponents: Object.keys(referenceComponents).reduce((acc, key) => {
+                    const ref = referenceComponents[key];
+                    acc[key] = {
+                        name: ref.name,
+                        text: ref.text
+                    };
+                    return acc;
+                }, {}),
+                feature_details: globalFeatureDetails ? {
+                    description: globalFeatureDetails
+                } : {}
             };
 
             console.log("📤 Sending payload:", payload);
@@ -856,6 +889,8 @@
             if (confirm("Requirements sent successfully! Clear current requirements?")) {
                 clearSelections();
                 referenceComponents = {};
+                globalFeatureRequest = "";
+                globalFeatureDetails = "";
                 saveReferenceComponents();
                 updateCount();
             }
