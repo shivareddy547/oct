@@ -202,7 +202,7 @@
         Object.assign(box.style, {
             position: "fixed",
             left: `${Math.min(x + 10, window.innerWidth - 420)}px`,
-            top: `${Math.min(y + 10, window.innerHeight - 280)}px`,
+            top: `${Math.min(y + 10, window.innerHeight - 320)}px`,
             background: "rgba(25, 25, 35, 0.98)",
             color: "#fff",
             padding: "15px",
@@ -229,8 +229,31 @@
             ${elementText ? `<div style="font-size: 12px; color: #ccc; margin-bottom: 8px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 4px; border-left: 3px solid #666;">
                 📝 "${elementText}"
             </div>` : ''}
+            
+            <div style="margin-bottom: 8px;">
+                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Request Type</label>
+                <select id="featureType" style="
+                    width: 100%; 
+                    padding: 8px;
+                    border: 1px solid #555; 
+                    border-radius: 4px;
+                    outline: none; 
+                    font-size: 13px; 
+                    background: #1a1a2a; 
+                    color: #fff;
+                    font-family: inherit;
+                ">
+                    <option value="new_feature">New Feature</option>
+                    <option value="enhancement">Enhancement</option>
+                    <option value="bug_fix">Bug Fix</option>
+                    <option value="ui_improvement">UI Improvement</option>
+                    <option value="performance">Performance</option>
+                    <option value="other">Other</option>
+                </select>
+            </div>
+            
             <textarea 
-                placeholder="Describe what should be changed or added to this component..." 
+                placeholder="Describe the feature requirements in detail..." 
                 style="
                     width: 100%; 
                     margin: 8px 0; 
@@ -247,6 +270,7 @@
                     transition: border-color 0.2s;
                 "
             ></textarea>
+            
             <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 12px;">
                 <div>
                     <button id="referenceToggle" style="
@@ -296,6 +320,8 @@
         // Event handlers
         box.querySelector("#saveBtn").onclick = () => {
             const requirementText = textarea.value.trim();
+            const featureType = box.querySelector("#featureType").value;
+
             if (!requirementText) {
                 showNotification("Please describe the requirement", "warning");
                 return;
@@ -303,11 +329,13 @@
 
             selections.push({
                 component: componentName,
-                domPath: domPath,
-                text: elementText,
                 requirement: requirementText,
-                url: window.location.pathname,
-                referenceComponent: isReference ? componentName : null
+                feature_request: featureType,
+                feature_details: {
+                    component_name: componentName,
+                    element_text: elementText,
+                    reference_component: isReference ? componentName : null
+                }
             });
 
             saveSelections();
@@ -325,7 +353,6 @@
                 referenceComponents[componentName] = {
                     name: componentName,
                     text: elementText,
-                    domPath: domPath,
                     url: window.location.pathname,
                     timestamp: new Date().toISOString()
                 };
@@ -584,8 +611,10 @@
                         <div style="flex: 1;">
                             <b style="color: #00e0ff; font-size: 15px;">${req.component}</b>
                             <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
-                                <small style="color: #888;">${req.url}</small>
-                                ${req.referenceComponent ?
+                                <span style="background: #666; color: #fff; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">
+                                    ${req.feature_request}
+                                </span>
+                                ${req.feature_details.reference_component ?
                     `<span style="background: #ffaa00; color: #000; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">REFERENCE</span>` :
                     ''
                 }
@@ -605,9 +634,11 @@
                     <div style="margin: 10px 0; font-size: 14px; line-height: 1.4; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px;">
                         ${req.requirement}
                     </div>
-                    <div style="font-size: 11px; color: #666; word-break: break-all; font-family: monospace;">
-                        ${req.domPath}
+                    ${req.feature_details.element_text ? `
+                    <div style="font-size: 12px; color: #ccc; margin-bottom: 8px; padding: 6px; background: rgba(255,255,255,0.05); border-radius: 4px;">
+                        📝 "${req.feature_details.element_text}"
                     </div>
+                    ` : ''}
                 `;
 
                 requirementsList.appendChild(reqElement);
@@ -788,15 +819,21 @@
         try {
             showNotification("📤 Sending requirements to backend...", "info");
 
+            // Construct the simplified payload without domPath, url, timestamp, meta data
             const payload = {
-                requirements: selections,
-                referenceComponents: referenceComponents,
-                metadata: {
-                    url: window.location.href,
-                    timestamp: new Date().toISOString(),
-                    userAgent: navigator.userAgent
-                }
+                requirements: selections.map(req => ({
+                    component: req.component,
+                    requirement: req.requirement,
+                    feature_request: req.feature_request,
+                    feature_details: req.feature_details
+                })),
+                reference_components: Object.keys(referenceComponents).map(key => ({
+                    name: referenceComponents[key].name,
+                    text: referenceComponents[key].text
+                }))
             };
+
+            console.log("📤 Sending payload:", payload);
 
             const response = await fetch("http://localhost:8000/api/llm_requirements", {
                 method: "POST",
