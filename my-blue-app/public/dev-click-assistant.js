@@ -189,7 +189,7 @@
         }, 3000);
     }
 
-    // ===== Input Box =====
+    // ===== Input Box with Draggable functionality =====
     function showInputBox(x, y, target, componentName, domPath) {
         if (activeInputBox) {
             activeInputBox.remove();
@@ -215,15 +215,33 @@
             fontSize: "14px",
             boxShadow: "0 8px 25px rgba(0,0,0,0.5)",
             border: "1px solid #444",
-            backdropFilter: "blur(10px)"
+            backdropFilter: "blur(10px)",
+            cursor: "move"
         });
 
         box.innerHTML = `
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; cursor: move;">
                 <b style="color: #00e0ff; font-size: 15px;">${componentName}</b>
-                <span style="font-size: 11px; color: #888; background: ${isReference ? '#ffaa00' : 'transparent'}; padding: 2px 6px; border-radius: 10px;">
-                    ${isReference ? '⭐ Reference' : ''}
-                </span>
+                <div style="display: flex; align-items: center; gap: 8px;">
+                    <span style="font-size: 11px; color: #888; background: ${isReference ? '#ffaa00' : 'transparent'}; padding: 2px 6px; border-radius: 10px;">
+                        ${isReference ? '⭐ Reference' : ''}
+                    </span>
+                    <button id="closeBox" style="
+                        background: none;
+                        border: none;
+                        color: #fff;
+                        font-size: 18px;
+                        cursor: pointer;
+                        padding: 0;
+                        width: 24px;
+                        height: 24px;
+                        display: flex;
+                        align-items: center;
+                        justify-content: center;
+                        border-radius: 4px;
+                        transition: background 0.2s;
+                    " title="Close">×</button>
+                </div>
             </div>
             <div style="font-size: 11px; color: #aaa; margin-bottom: 8px; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 4px; word-break: break-all;">
                 ${domPath}
@@ -329,6 +347,55 @@
         const textarea = box.querySelector("textarea");
         textarea.focus();
 
+        // ===== Draggable functionality =====
+        let isDragging = false;
+        let currentX;
+        let currentY;
+        let initialX;
+        let initialY;
+        let xOffset = 0;
+        let yOffset = 0;
+
+        function dragStart(e) {
+            if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON') {
+                return;
+            }
+
+            initialX = e.clientX - xOffset;
+            initialY = e.clientY - yOffset;
+
+            if (e.target === box || e.target.closest('div[style*="cursor: move"]')) {
+                isDragging = true;
+            }
+        }
+
+        function dragEnd(e) {
+            initialX = currentX;
+            initialY = currentY;
+            isDragging = false;
+        }
+
+        function drag(e) {
+            if (isDragging) {
+                e.preventDefault();
+                currentX = e.clientX - initialX;
+                currentY = e.clientY - initialY;
+
+                xOffset = currentX;
+                yOffset = currentY;
+
+                setTranslate(currentX, currentY, box);
+            }
+        }
+
+        function setTranslate(xPos, yPos, el) {
+            el.style.transform = `translate3d(${xPos}px, ${yPos}px, 0)`;
+        }
+
+        box.addEventListener("mousedown", dragStart);
+        document.addEventListener("mouseup", dragEnd);
+        document.addEventListener("mousemove", drag);
+
         // Event handlers
         box.querySelector("#saveBtn").onclick = () => {
             const requirementText = textarea.value.trim();
@@ -353,6 +420,12 @@
 
             saveSelections();
             updateCount();
+
+            // Clean up event listeners
+            box.removeEventListener("mousedown", dragStart);
+            document.removeEventListener("mouseup", dragEnd);
+            document.removeEventListener("mousemove", drag);
+
             box.remove();
             activeInputBox = null;
             showNotification(`✅ Requirement saved for ${componentName}`, "success");
@@ -366,31 +439,51 @@
                 referenceComponents[componentName] = {
                     name: componentName,
                     text: elementText,
+                    description: `Reference component: ${componentName}`,
                     timestamp: new Date().toISOString()
                 };
                 showNotification(`⭐ ${componentName} set as reference component`, "success");
             }
             saveReferenceComponents();
+
+            // Clean up event listeners
+            box.removeEventListener("mousedown", dragStart);
+            document.removeEventListener("mouseup", dragEnd);
+            document.removeEventListener("mousemove", drag);
+
             box.remove();
             activeInputBox = null;
         };
 
         box.querySelector("#cancelBtn").onclick = () => {
+            // Clean up event listeners
+            box.removeEventListener("mousedown", dragStart);
+            document.removeEventListener("mouseup", dragEnd);
+            document.removeEventListener("mousemove", drag);
+
             box.remove();
             activeInputBox = null;
         };
 
-        // Close on outside click
-        setTimeout(() => {
-            const closeOnOutsideClick = (e) => {
-                if (activeInputBox && !activeInputBox.contains(e.target)) {
-                    activeInputBox.remove();
-                    activeInputBox = null;
-                    document.removeEventListener('click', closeOnOutsideClick);
-                }
-            };
-            document.addEventListener('click', closeOnOutsideClick);
-        }, 100);
+        box.querySelector("#closeBox").onclick = () => {
+            // Clean up event listeners
+            box.removeEventListener("mousedown", dragStart);
+            document.removeEventListener("mouseup", dragEnd);
+            document.removeEventListener("mousemove", drag);
+
+            box.remove();
+            activeInputBox = null;
+        };
+
+        // Remove outside click closing - now only close button closes
+        // Add hover effect to close button
+        const closeBtn = box.querySelector("#closeBox");
+        closeBtn.onmouseenter = () => {
+            closeBtn.style.background = "rgba(255,255,255,0.2)";
+        };
+        closeBtn.onmouseleave = () => {
+            closeBtn.style.background = "none";
+        };
     }
 
     // ===== Toolbar =====
@@ -792,6 +885,9 @@
                     <div style="display: flex; justify-content: space-between; align-items: flex-start;">
                         <div style="flex: 1;">
                             <b style="color: #ffaa00; font-size: 15px;">${refName}</b>
+                            <div style="font-size: 12px; color: #ccc; margin-top: 4px;">
+                                ${ref.description || "No description"}
+                            </div>
                             <div style="font-size: 11px; color: #888; margin-top: 4px;">
                                 ${new Date(ref.timestamp).toLocaleString()}
                             </div>
@@ -857,7 +953,8 @@
                     const ref = referenceComponents[key];
                     acc[key] = {
                         name: ref.name,
-                        text: ref.text
+                        text: ref.text,
+                        description: ref.description || `Reference component: ${ref.name}`
                     };
                     return acc;
                 }, {}),
@@ -928,6 +1025,12 @@
         document.addEventListener("keydown", (e) => {
             // Escape to close active input box
             if (e.key === "Escape" && activeInputBox) {
+                // Clean up event listeners
+                if (activeInputBox) {
+                    activeInputBox.removeEventListener("mousedown", dragStart);
+                    document.removeEventListener("mouseup", dragEnd);
+                    document.removeEventListener("mousemove", drag);
+                }
                 activeInputBox.remove();
                 activeInputBox = null;
             }
