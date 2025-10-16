@@ -156,6 +156,163 @@
         return childrenWithText?.textContent?.trim().substring(0, 100) || "No text content";
     }
 
+    function getAppComponentInfo() {
+        // Try to find the main App component
+        const rootElement = document.getElementById('root');
+        if (!rootElement) return null;
+
+        // Look for React components in the root
+        for (const k in rootElement) {
+            if (k.startsWith("__reactFiber$") || k.startsWith("__reactInternalInstance$")) {
+                let fiber = rootElement[k];
+                while (fiber) {
+                    if (fiber.type && (fiber.type.name === 'App' || fiber.type.name === 'Router' || fiber.type.displayName === 'Router')) {
+                        // Found a router or app component, try to extract route information
+                        return extractRouteInfo(fiber);
+                    }
+                    fiber = fiber.return;
+                }
+            }
+        }
+
+        return null;
+    }
+
+    function extractRouteInfo(fiber) {
+        const routes = [];
+        const components = new Set();
+
+        function traverseFiber(node, depth = 0) {
+            if (depth > 10) return; // Prevent infinite recursion
+
+            if (node && node.type) {
+                // Check for Route components
+                if (node.type.name === 'Route' || node.type.displayName === 'Route') {
+                    const props = node.memoizedProps || node.pendingProps || {};
+                    if (props.path) {
+                        routes.push({
+                            path: props.path,
+                            element: props.element?.type?.name || 'Unknown'
+                        });
+                    }
+                }
+
+                // Collect component names
+                if (node.type.name && node.type.name !== 'Route' && node.type.name !== 'Router') {
+                    components.add(node.type.name);
+                }
+
+                // Traverse children
+                if (node.child) {
+                    traverseFiber(node.child, depth + 1);
+                }
+            }
+
+            // Traverse siblings
+            if (node && node.sibling) {
+                traverseFiber(node.sibling, depth);
+            }
+        }
+
+        traverseFiber(fiber);
+
+        return {
+            routes: routes,
+            components: Array.from(components)
+        };
+    }
+
+    function generateAppComponentText(routeInfo) {
+        if (!routeInfo || routeInfo.routes.length === 0) {
+            return "React App with routing configuration";
+        }
+
+        const imports = [...new Set(routeInfo.components)].map(comp => `import ${comp} from './components/${comp}';`).join('\n');
+        const routes = routeInfo.routes.map(route =>
+            `        <Route path="${route.path}" element={<${route.element} />} />`
+        ).join('\n');
+
+        return `import React from 'react';\nimport { BrowserRouter as Router, Routes, Route } from 'react-router-dom';\n${imports}\n\nfunction App() {\n  return (\n    <Router>\n      <Routes>\n${routes}\n      </Routes>\n    </Router>\n  );\n}\n\nexport default App;`;
+    }
+
+    function createDefaultAppComponent() {
+        // Always create a default App component
+        const defaultAppCode = `import React from 'react';\nimport { BrowserRouter as Router, Routes, Route } from 'react-router-dom';\n\nfunction App() {\n  return (\n    <Router>\n      <Routes>\n        <Route path="/" element={<div>Home Page</div>} />\n        <Route path="/contact" element={<div>Contact Page</div>} />\n      </Routes>\n    </Router>\n  );\n}\n\nexport default App;`;
+
+        const defaultAppText = "Complete React App with routing";
+
+        // Always add App as reference component
+        referenceComponents['App'] = {
+            name: 'App',
+            text: defaultAppText,
+            appCode: defaultAppCode,
+            description: "Main App component",
+            timestamp: new Date().toISOString()
+        };
+
+        // Always add App requirement if not already present
+        const hasAppRequirement = selections.some(req => req.component === 'App');
+        if (!hasAppRequirement) {
+            selections.push({
+                component: 'App',
+                text: defaultAppText,
+                requirement: 'Update App.js routing configuration as needed for new features',
+                referenceComponent: 'App',
+                appCode: defaultAppCode
+            });
+        }
+
+        saveReferenceComponents();
+        saveSelections();
+        updateCount();
+
+        console.log("✅ Added default App component to references and requirements");
+        return true;
+    }
+
+    function parseFeatureDetails(featureDetails) {
+        if (!featureDetails || !featureDetails.trim()) return {};
+
+        try {
+            // Clean the input - remove extra quotes and fix formatting
+            let cleanedDetails = featureDetails.trim();
+
+            // If it looks like JSON but has issues, try to fix common problems
+            if (cleanedDetails.includes('{') && cleanedDetails.includes('}')) {
+                // Try to parse as JSON first
+                try {
+                    return JSON.parse(cleanedDetails);
+                } catch (e) {
+                    console.log("❌ JSON parse failed, trying to fix formatting...");
+
+                    // Fix common JSON formatting issues
+                    cleanedDetails = cleanedDetails
+                        .replace(/"\s*:\s*"/g, '": "')  // Fix spacing around colons
+                        .replace(/,\s*"/g, ', "')        // Fix spacing after commas
+                        .replace(/",\s*"/g, '", "')      // Fix spacing between properties
+                        .replace(/"\s*}/g, '"}')         // Fix spacing before closing brace
+                        .replace(/{\s*"/g, '{"');        // Fix spacing after opening brace
+
+                    try {
+                        return JSON.parse(cleanedDetails);
+                    } catch (e2) {
+                        console.log("❌ Fixed JSON parse also failed, using fallback");
+                    }
+                }
+            }
+
+            // Fallback: treat as plain text description
+            return {
+                description: featureDetails
+            };
+        } catch (error) {
+            console.error("❌ Feature details parsing error:", error);
+            return {
+                description: featureDetails
+            };
+        }
+    }
+
     function showNotification(message, type = "info") {
         const colors = {
             info: "#00e0ff",
@@ -266,8 +423,8 @@
             </div>
             
             <div style="margin-bottom: 8px;">
-                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Details (Global)</label>
-                <textarea id="featureDetails" placeholder="Detailed feature specifications..." style="
+                <label style="display: block; font-size: 12px; color: #aaa; margin-bottom: 4px;">Feature Details (Global - Use valid JSON)</label>
+                <textarea id="featureDetails" placeholder='{"name": "Feature Name", "description": "Feature description", "fields": ["field1", "field2"]}' style="
                     width: 100%; 
                     padding: 8px;
                     border: 1px solid #555; 
@@ -432,16 +589,18 @@
         };
 
         box.querySelector("#referenceToggle").onclick = () => {
+            let referenceData = {
+                name: componentName,
+                text: elementText,
+                description: `Reference component: ${componentName}`,
+                timestamp: new Date().toISOString()
+            };
+
             if (referenceComponents[componentName]) {
                 delete referenceComponents[componentName];
                 showNotification(`❌ ${componentName} removed as reference`, "info");
             } else {
-                referenceComponents[componentName] = {
-                    name: componentName,
-                    text: elementText,
-                    description: `Reference component: ${componentName}`,
-                    timestamp: new Date().toISOString()
-                };
+                referenceComponents[componentName] = referenceData;
                 showNotification(`⭐ ${componentName} set as reference component`, "success");
             }
             saveReferenceComponents();
@@ -676,7 +835,7 @@
                 
                 <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
                     <div style="font-size: 14px; color: #00e0ff; margin-bottom: 8px; font-weight: bold;">Feature Details</div>
-                    <div style="font-size: 13px; color: #ccc;">${globalFeatureDetails || "Not set"}</div>
+                    <div style="font-size: 13px; color: #ccc; white-space: pre-wrap;">${globalFeatureDetails || "Not set"}</div>
                 </div>
             </div>
             
@@ -940,7 +1099,15 @@
         try {
             showNotification("📤 Sending requirements to backend...", "info");
 
-            // Construct the payload according to json1 structure
+            // ALWAYS create default App component before sending
+            console.log("🔄 Always adding App component to response...");
+            createDefaultAppComponent();
+
+            // Parse feature details properly
+            const parsedFeatureDetails = parseFeatureDetails(globalFeatureDetails);
+            console.log("📋 Parsed feature details:", parsedFeatureDetails);
+
+            // Construct the payload - ALWAYS include App component
             const payload = {
                 feature_request: globalFeatureRequest,
                 requirements: selections.map(req => ({
@@ -954,16 +1121,42 @@
                     acc[key] = {
                         name: ref.name,
                         text: ref.text,
-                        description: ref.description || `Reference component: ${ref.name}`
+                        description: ref.description || `Reference component: ${ref.name}`,
+                        ...(ref.appCode && { appCode: ref.appCode })
                     };
                     return acc;
                 }, {}),
-                feature_details: globalFeatureDetails ? {
-                    description: globalFeatureDetails
-                } : {}
+                feature_details: Object.keys(parsedFeatureDetails).length > 0 ? parsedFeatureDetails : undefined
             };
 
-            console.log("📤 Sending payload:", payload);
+            // ALWAYS ensure App component is in requirements
+            const hasAppInRequirements = payload.requirements.some(req => req.component === 'App');
+            if (!hasAppInRequirements) {
+                payload.requirements.push({
+                    component: 'App',
+                    text: 'Complete React App with routing',
+                    requirement: 'Update App.js routing configuration as needed for new features',
+                    referenceComponent: 'App',
+                    appCode: referenceComponents['App']?.appCode
+                });
+            }
+
+            // ALWAYS ensure App component is in referenceComponents
+            if (!payload.referenceComponents['App']) {
+                payload.referenceComponents['App'] = {
+                    name: 'App',
+                    text: 'Complete React App with routing',
+                    appCode: `import React from 'react';\nimport { BrowserRouter as Router, Routes, Route } from 'react-router-dom';\n\nfunction App() {\n  return (\n    <Router>\n      <Routes>\n        <Route path="/" element={<div>Home Page</div>} />\n        <Route path="/contact" element={<div>Contact Page</div>} />\n      </Routes>\n    </Router>\n  );\n}\n\nexport default App;`,
+                    description: "Main App component"
+                };
+            }
+
+            // Remove feature_details if it's empty
+            if (payload.feature_details && Object.keys(payload.feature_details).length === 0) {
+                delete payload.feature_details;
+            }
+
+            console.log("📤 Final payload being sent:", payload);
 
             const response = await fetch("http://localhost:8000/api/llm_requirements", {
                 method: "POST",
@@ -1055,6 +1248,10 @@
 
         const existingInput = document.querySelector(".dev-input-box");
         if (existingInput) existingInput.remove();
+
+        // ALWAYS create default App component on initialization
+        console.log("🔄 Always adding App component on initialization...");
+        createDefaultAppComponent();
 
         // Build toolbar
         buildToolbar();
