@@ -697,17 +697,113 @@ class OllamaAnalyzer:
         ]
         self.model = "qwen3-coder:480b-cloud"
 
-    @staticmethod
-    def clean_yaml_response(yaml_response: str) -> str:
+    def clean_yaml_response(self, yaml_response: str) -> str:
         """
-        Remove Markdown fences and extra whitespace from YAML response.
+        Remove Markdown fences and extra explanations from YAML response.
         """
+        # Handle None or empty response
+        if not yaml_response:
+            return ""
+
+        # Ensure it's a string
+        yaml_response = str(yaml_response)
+
+        # If the response already starts with proper YAML, return it as is
+        if yaml_response.strip().startswith('projects:'):
+            return yaml_response.strip()
+
         lines = yaml_response.splitlines()
-        if lines and lines[0].startswith("```"):
-            lines = lines[1:]
-        if lines and lines[-1].startswith("```"):
-            lines = lines[:-1]
-        return "\n".join(lines).strip()
+        cleaned_lines = []
+
+        # Find the start of YAML content
+        yaml_started = False
+
+        for line in lines:
+            # Skip markdown code fences
+            if line.strip().startswith('```'):
+                continue
+
+            # Look for the start of actual YAML content
+            if line.strip().startswith('projects:'):
+                yaml_started = True
+
+            # Only include lines after YAML has started
+            if yaml_started:
+                cleaned_lines.append(line)
+
+        # If we still don't have YAML content, try to extract code blocks and convert to YAML format
+        if not yaml_started or len(cleaned_lines) == 0:
+            return self._convert_code_blocks_to_yaml(yaml_response)
+
+        cleaned = "\n".join(cleaned_lines).strip()
+
+        # Ensure it starts with projects:
+        if not cleaned.startswith('projects:'):
+            # Try to find projects: in the text and start from there
+            projects_index = cleaned.find('projects:')
+            if projects_index != -1:
+                cleaned = cleaned[projects_index:]
+            else:
+                # If no projects found, try conversion
+                return self._convert_code_blocks_to_yaml(yaml_response)
+
+        return cleaned
+
+    def _convert_code_blocks_to_yaml(self, response: str) -> str:
+        """
+        Convert code blocks in the response to proper YAML format.
+        This is a fallback when the LLM doesn't follow instructions.
+        """
+        lines = response.splitlines()
+        yaml_lines = ["projects:"]
+        yaml_lines.append("  - project_path: \"/media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app\"")
+        yaml_lines.append("    project_type: \"react\"")
+        yaml_lines.append("    files:")
+
+        current_file = None
+        current_content = []
+
+        for line in lines:
+            # Look for file paths in code blocks
+            if '//' in line and ('src/' in line or 'components/' in line):
+                if current_file and current_content:
+                    # Save the previous file
+                    yaml_lines.append(f"      - path: \"{current_file}\"")
+                    yaml_lines.append("        content: |")
+                    for content_line in current_content:
+                        yaml_lines.append(f"          {content_line}")
+                    current_content = []
+
+                # Extract filename from comment
+                if '//' in line:
+                    file_part = line.split('//')[-1].strip()
+                    if 'src/' in file_part:
+                        current_file = file_part
+                    else:
+                        current_file = f"src/{file_part}"
+
+            # Collect code content
+            elif current_file and line.strip() and not line.strip().startswith('//') and not line.strip().startswith('```'):
+                current_content.append(line)
+
+        # Add the last file if any
+        if current_file and current_content:
+            yaml_lines.append(f"      - path: \"{current_file}\"")
+            yaml_lines.append("        content: |")
+            for content_line in current_content:
+                yaml_lines.append(f"          {content_line}")
+
+        # Add the required YAML structure
+        yaml_lines.append("")
+        yaml_lines.append("install_commands:")
+        yaml_lines.append("  - echo \"No additional packages required\"")
+        yaml_lines.append("")
+        yaml_lines.append("packages:")
+        yaml_lines.append("  rails_gems: []")
+        yaml_lines.append("  react_dependencies: []")
+        yaml_lines.append("  react_devDependencies: []")
+
+        return "\n".join(yaml_lines)
 
     def set_model(self, model_name: str):
         """Set the model to use for analysis"""
@@ -721,11 +817,241 @@ class OllamaAnalyzer:
         """Get list of available models"""
         return self.available_models
 
+    def build_llm_prompt(self, requirements_data):
+        """
+        Construct perfect LLM prompt from requirements data with strict YAML output format
+        """
+        requirements = requirements_data.get("requirements", [])
+        reference_components = requirements_data.get("referenceComponents", {})
+        feature_details = requirements_data.get("feature_details", {})
+
+        prompt_parts = []
+
+        # 1. Feature Overview
+        prompt_parts.append(f"# FEATURE REQUEST: {feature_details.get('name', 'New Feature')}")
+        prompt_parts.append(f"## Description: {feature_details.get('description', '')}")
+        prompt_parts.append("")
+
+        # 2. Concatenate all requirements at the top
+        prompt_parts.append("## ALL REQUIREMENTS:")
+        for i, req in enumerate(requirements, 1):
+            prompt_parts.append(f"{i}. {req['requirement']}")
+        prompt_parts.append("")
+
+        # 3. Process each requirement with its reference code
+        for i, req in enumerate(requirements, 1):
+            ref_comp_name = req.get('referenceComponent')
+            ref_comp_data = reference_components.get(ref_comp_name, {})
+
+            prompt_parts.append(f"## REQUIREMENT {i}: {req['component']}")
+            prompt_parts.append(f"**Task:** {req['requirement']}")
+            prompt_parts.append(f"**Reference Component:** {ref_comp_name}")
+            prompt_parts.append("")
+
+            # Get the actual reference component code
+            if ref_comp_name:
+                ref_code = self._get_component_code(ref_comp_name, ref_comp_data)
+                if ref_code:
+                    prompt_parts.append(f"### REFERENCE CODE FOR {ref_comp_name}:")
+                    prompt_parts.append("```javascript")
+                    prompt_parts.append(ref_code)
+                    prompt_parts.append("```")
+                    prompt_parts.append("")
+
+                    # Add specific instructions based on the requirement
+                    if "navigation" in req['requirement'].lower() or "menu" in req['requirement'].lower():
+                        prompt_parts.append("**INSTRUCTIONS FOR NAVIGATION:**")
+                        prompt_parts.append("- ONLY add the 'Products' link between 'Home' and 'Contact Us'")
+                        prompt_parts.append("- DO NOT modify existing styling, classes, or structure")
+                        prompt_parts.append("- Keep all existing classes exactly as they are")
+                        prompt_parts.append("- Only add: <Link to=\"/products\" className=\"text-white hover:text-blue-200\">Products</Link>")
+
+                    elif "form" in req['requirement'].lower() or "crud" in req['requirement'].lower():
+                        prompt_parts.append("**INSTRUCTIONS FOR FORM:**")
+                        prompt_parts.append("- Follow EXACT same layout and structure as the reference form")
+                        prompt_parts.append("- Use identical container classes and styling")
+                        prompt_parts.append("- Replace form fields but keep same validation pattern")
+                        prompt_parts.append("- Maintain identical spacing, padding, and button styling")
+
+                else:
+                    prompt_parts.append(f"*Reference code for {ref_comp_name} not found*")
+            else:
+                prompt_parts.append("*No reference component specified*")
+
+            prompt_parts.append("")
+
+        # 4. Technical Specifications
+        prompt_parts.append("## TECHNICAL SPECIFICATIONS:")
+        prompt_parts.append(f"- Fields needed: {', '.join(feature_details.get('fields', []))}")
+        prompt_parts.append(f"- Pages required: {', '.join(feature_details.get('pages_needed', []))}")
+        prompt_parts.append("- Use React with Tailwind CSS (same as existing components)")
+        prompt_parts.append("- Maintain consistent styling with existing application")
+        prompt_parts.append("- Include full CRUD operations: Create, Read, Update, Delete")
+        prompt_parts.append("- Follow React best practices")
+        prompt_parts.append("- If no changes in referenced components Dont do any changes.")
+        prompt_parts.append("- If changes required in components or referenced components please do change only requested change if they need but dont change other css without neeeds")
+
+        prompt_parts.append("")
+
+        # 5. STRICT OUTPUT FORMAT REQUIREMENTS
+        prompt_parts.append("## CRITICAL OUTPUT INSTRUCTIONS:")
+        prompt_parts.append("""
+    YOU MUST RESPOND WITH ONLY VALID YAML IN THIS EXACT FORMAT. NO EXPLANATIONS, NO MARKDOWN, NO CODE BLOCKS.
+
+    START YOUR RESPONSE WITH:
+    projects:
+      - project_path: "/media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app"
+        project_type: "react"
+        files:
+
+    DO NOT INCLUDE:
+    - ```yaml or any markdown fences
+    - Explanations like "I'll implement..."
+    - Comments outside the YAML structure
+    - Code blocks outside file content
+    - Any text before or after the YAML
+    - If no changes in referenced components Dont do any changes
+    - If changes required in components or referenced components please do change only requested change if they need but dont change other css without neeeds
+
+    YOUR OUTPUT MUST START WITH 'projects:' AND END WITH THE LAST FILE CONTENT.
+
+    IF YOU INCLUDE ANY TEXT BEFORE 'projects:' OR AFTER THE YAML, THE SYSTEM WILL FAIL.
+    IF YOU USE MARKDOWN CODE BLOCKS, THE SYSTEM WILL FAIL.
+    IF YOU EXPLAIN WHAT YOU'RE DOING, THE SYSTEM WILL FAIL.
+
+    ONLY OUTPUT THE YAML STRUCTURE SHOWN BELOW.
+    """)
+
+        prompt_parts.append("## EXPECTED YAML STRUCTURE:")
+        prompt_parts.append("""
+    projects:
+      - project_path: "/media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app"
+        project_type: "react"
+        files:
+          - path: "src/components/Header.js"
+            content: |
+              import React from 'react';
+              import { Link } from 'react-router-dom';
+
+              const Header = () => {
+                return (
+                  <nav className="bg-blue-600 p-4">
+                    <div className="container mx-auto">
+                      <div className="space-x-4">
+                        <Link to="/" className="text-white hover:text-blue-200">Home</Link>
+                        <Link to="/products" className="text-white hover:text-blue-200">Products</Link>
+                        <Link to="/contact" className="text-white hover:text-blue-200">Contact Us</Link>
+                      </div>
+                    </div>
+                  </nav>
+                );
+              };
+
+              export default Header;
+
+          - path: "src/components/Products/ProductForm.js"
+            content: |
+              import React, { useState } from 'react';
+              import { useNavigate } from 'react-router-dom';
+
+              const ProductForm = ({ isEdit = false, productId }) => {
+                const [formData, setFormData] = useState({
+                  name: '',
+                  description: '',
+                  sku: ''
+                });
+                const navigate = useNavigate();
+
+                // Follow EXACT same structure as ContactForm reference
+                return (
+                  <div className="min-h-screen bg-gray-100 py-8">
+                    <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
+                      <h2 className="text-2xl font-bold mb-6">Add Product</h2>
+                      <form>
+                        {/* Form fields following ContactForm structure */}
+                      </form>
+                    </div>
+                  </div>
+                );
+              };
+
+              export default ProductForm;
+
+    install_commands:
+      - echo "No additional packages required"
+
+    packages:
+      rails_gems: []
+      react_dependencies: []
+      react_devDependencies: []
+    """)
+
+        return "\n".join(prompt_parts)
+
+    def _get_component_code(self, component_name: str, component_data: dict) -> str:
+        """
+        Get the actual code for a reference component.
+        This method needs to be implemented based on your project structure.
+        """
+        # Try to find the component file in the React project
+        react_projects = ['my-blue-app/']  # Adjust based on your project structure
+
+        for project_root in react_projects:
+            # Try different possible file locations and extensions
+            possible_paths = [
+                f"src/components/{component_name}.js",
+                f"src/components/{component_name}.jsx",
+                f"src/components/{component_name}.tsx",
+                f"src/pages/{component_name}.js",
+                f"src/pages/{component_name}.jsx",
+                f"src/pages/{component_name}.tsx",
+                f"src/{component_name}.js",
+                f"src/{component_name}.jsx",
+                f"src/{component_name}.tsx",
+            ]
+
+            for rel_path in possible_paths:
+                full_path = os.path.join(project_root, rel_path)
+                if os.path.exists(full_path):
+                    try:
+                        with open(full_path, 'r') as f:
+                            return f.read()
+                    except Exception as e:
+                        print(f"Error reading component {component_name}: {e}")
+                        return f"// Error reading component file: {e}"
+
+        # Fallback: return the text content from component_data
+        return component_data.get('text', f"// Component {component_name} code not found")
+
+    def _get_key_files_for_project(self, project_root: str, project_type: str) -> List[str]:
+        """Get key files for different project types"""
+        if project_type == 'react':
+            return [
+                'package.json',
+                'src/App.js', 'src/App.jsx', 'src/App.tsx',
+                'src/index.js', 'src/index.jsx', 'src/index.tsx',
+                'src/main.js', 'src/main.jsx', 'src/main.tsx'
+            ]
+        elif project_type == 'rails':
+            return [
+                'Gemfile',
+                'config/routes.rb',
+                'app/controllers/application_controller.rb',
+                'app/views/layouts/application.html.erb',
+                'config/database.yml',
+                'package.json'  # Some Rails apps have frontend assets
+            ]
+        else:
+            return ['package.json', 'Gemfile']
+
     def auto_generate_file_changes(self, user_query: str, project_roots: List[str]):
         """Automatically generate file changes based on user query and multi-project context"""
         print(f"🎯 Auto-generating file changes for: '{user_query}'")
         print(f"📁 Projects: {project_roots}")
         print(f"🤖 Using model: {self.model}")
+
+        # Store project roots for component code lookup
+        self.project_roots = project_roots
 
         # Step 1: Analyze query intent and dynamically find relevant files across all projects
         finder = MultiProjectFileFinder(project_roots)
@@ -758,153 +1084,37 @@ class OllamaAnalyzer:
         yaml_output = self.analyze_and_generate_changes(user_query, project_context, project_roots, intent)
         yaml_output = self.clean_yaml_response(yaml_output)
 
+        print("=== FINAL YAML OUTPUT ===")
         print(yaml_output)
+        print("=== END FINAL YAML OUTPUT ===")
+
         return yaml_output
-
-
-
-
-    def _get_key_files_for_project(self, project_root: str, project_type: str) -> List[str]:
-        """Get key files for different project types"""
-        if project_type == 'react':
-            return [
-                'package.json',
-                'src/App.js', 'src/App.jsx', 'src/App.tsx',
-                'src/index.js', 'src/index.jsx', 'src/index.tsx',
-                'src/main.js', 'src/main.jsx', 'src/main.tsx'
-            ]
-        elif project_type == 'rails':
-            return [
-                'Gemfile',
-                'config/routes.rb',
-                'app/controllers/application_controller.rb',
-                'app/views/layouts/application.html.erb',
-                'config/database.yml',
-                'package.json'  # Some Rails apps have frontend assets
-            ]
-        else:
-            return ['package.json', 'Gemfile']
-
     def analyze_and_generate_changes(self, prompt: str, project_context: str, project_roots: List[str], intent: Dict[str, bool]) -> str:
         """Use Ollama to analyze projects and generate specific file changes for multiple projects"""
-        print(f"Analyzing {len(project_roots)} projects for: {prompt}")
+        print(f"Analyzing {len(project_roots)} projects")
         print(f"Intent: Frontend: {intent['frontend']}, Backend: {intent['backend']}")
         print(f"Using model: {self.model}")
-        print(11111111111111111111)
-        print(project_roots)
 
-        # Detect React and Rails projects
-        react_projects = [p for p in project_roots if any(x in p.lower() for x in ['react', 'src/', 'components/'])]
-        rails_projects = [p for p in project_roots if any(x in p.lower() for x in ['rails', 'app/', 'config/', 'db/'])]
-        react_projects = ['my-blue-app/']
-        rails_projects = ['my_api_app/']
-        print(react_projects)
-        print(rails_projects)
-        print(333333333333)
-
-        if not react_projects and not rails_projects:
-            if len(project_roots) >= 2:
-                react_projects = [project_roots[0]]
-                rails_projects = [project_roots[1]]
-            else:
-                react_projects = project_roots
-                rails_projects = []
-
-        # Helper to find component file
-        def find_component_file(component_name: str):
-            for path in react_projects:
-                candidate = os.path.join(path, "src", "components", f"{component_name}.js")
-                if os.path.exists(candidate):
-                    return candidate
-            return None
-
-        # Helper to indent YAML block content
-        def indent_content(content: str, spaces: int = 6) -> str:
-            """
-            Properly indent multi-line code for YAML block.
-            Strips leading empty lines and ensures consistent indentation.
-            """
-            lines = content.splitlines()
-            # Remove leading/trailing empty lines
-            while lines and lines[0].strip() == "":
-                lines.pop(0)
-            while lines and lines[-1].strip() == "":
-                lines.pop()
-
-            indent = " " * spaces
-            # Add indentation to every line
-            indented_lines = [(indent + line if line.strip() != "" else "") for line in lines]
-            return "\n".join(indented_lines)
-
-        # Build YAML-ready prompt including existing file content
-        import json
+        # Build the LLM prompt using the new method
         try:
-            requirements_json = json.loads(prompt).get("requirements", [])
-        except Exception:
-            requirements_json = []
-
-
-        yaml_requirements = ""
-        for req in requirements_json:
-            component = req.get("component", "UnknownComponent")
-            requirement_text = req.get("requirement", "")
-            file_path = find_component_file(component)
-            if file_path:
-                with open(file_path, "r") as f:
-                    existing_content = f.read()
+            import json
+            # Try to parse as JSON, if it fails, use as raw string
+            try:
+                # Remove "You: " prefix if present
+                clean_prompt = prompt.replace("You: ", "").strip()
+                requirements_data = json.loads(clean_prompt)
+            except json.JSONDecodeError as e:
+                print(f"Input is not valid JSON: {e}, using as raw prompt")
+                requirements_data = {"requirements": [], "referenceComponents": {}, "feature_details": {}}
+                system_prompt = prompt
             else:
-                existing_content = req.get("text", "// No existing content found")
+                system_prompt = self.build_llm_prompt(requirements_data)
 
-            # Properly indent everything under 'content: |'
-            yaml_requirements += f"""
-          - component: "{component}"
-            query: "{requirement_text}"
-            content: |
-        {indent_content(existing_content, spaces=6)}
-        """
+        except Exception as e:
+            print(f"Error processing requirements data: {e}")
+            system_prompt = prompt
 
-        system_prompt = f"""
-        You are an expert full-stack developer working with both React.js and Ruby on Rails applications.
-
-        Your job:
-        - For each requirement, you will receive:
-            * component name
-            * query/requirement
-            * full existing file content
-            * optionally a reference component with full code/text
-        - Apply the requested change directly into the code.
-        - If a reference component is provided, replicate its **layout, styling, and structure** in the new component as closely as possible, adapting only the fields and logic requested.
-        - Respond ONLY with valid YAML, structured for direct application:
-
-          projects:
-            - project_path: /media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app
-              project_type: /media/shivareddy/E/oct-2025/15_evg/oct/my_api_app
-              files:
-                - path: <relative_file_path_from_project_root>
-                  content: |
-                    <full updated file content>
-
-          install_commands:
-            - echo 'No additional packages required'
-          packages:
-            rails_gems: []
-            react_dependencies: []
-            react_devDependencies: []
-
-        USER REQUIREMENTS:
-        {yaml_requirements}
-
-        Rules:
-        1. Output strictly YAML — no Markdown, no explanations, no extra text.
-        2. Each file must include full updated content (imports, logic, formatting).
-        3. If a reference component is provided, follow its **layout and styling** for the new component.
-        4. Support multiple requirements/components sequentially.
-        5. Keep indentation consistent and valid for YAML.
-        """
-
-
-        print("fulllllllllllllllllllllllllllllll")
-        print(system_prompt)
+        print("Sending prompt to Ollama...")
         try:
             response = requests.post(
                 f"{self.base_url}/api/generate",
@@ -916,14 +1126,31 @@ class OllamaAnalyzer:
                 timeout=10000
             )
             response.raise_for_status()
-            print("rrerrrrrrrrrrrrrrrrrr")
-            print(response.json())
-            return response.json().get("response", "")
+
+            # Get the raw response
+            raw_response = response.json().get("response", "")
+            print("Raw response received from Ollama")
+
+            # Debug: print raw response
+            print("=== RAW RESPONSE ===")
+            print(raw_response)
+            print("=== END RAW RESPONSE ===")
+
+            # Clean the response - remove any markdown fences and explanations
+            cleaned_response = self.clean_yaml_response(raw_response)
+            print("Cleaned YAML response ready")
+
+            # Debug: print cleaned response
+            print("=== CLEANED RESPONSE ===")
+            print(cleaned_response)
+            print("=== END CLEANED RESPONSE ===")
+
+            return cleaned_response
+
         except requests.exceptions.Timeout:
             return "Error: Request timeout - Ollama server took too long to respond"
         except Exception as e:
             return f"Error: {e}"
-
 
 class MultiProjectAIAssistant:
     def __init__(self, project_paths: List[str], redis_host='localhost', redis_port=6379,
