@@ -867,10 +867,15 @@ class OllamaAnalyzer:
         You are an expert full-stack developer working with both React.js and Ruby on Rails applications.
 
         Your job:
-        - For each requirement, you will receive the component name, a query (requirement), the full existing file content, and optionally a reference component.
+        - For each requirement, you will receive:
+            * component name
+            * query/requirement
+            * full existing file content
+            * optionally a reference component with full code/text
         - Apply the requested change directly into the code.
-        - When a reference component is provided, use it as a guide for styling, structure, or logic, but adapt it appropriately for the target component.
-        - Respond ONLY with valid YAML, structured for direct application, including:
+        - If a reference component is provided, replicate its **layout, styling, and structure** in the new component as closely as possible, adapting only the fields and logic requested.
+        - Respond ONLY with valid YAML, structured for direct application:
+
           projects:
             - project_path: /media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app
               project_type: /media/shivareddy/E/oct-2025/15_evg/oct/my_api_app
@@ -878,6 +883,7 @@ class OllamaAnalyzer:
                 - path: <relative_file_path_from_project_root>
                   content: |
                     <full updated file content>
+
           install_commands:
             - echo 'No additional packages required'
           packages:
@@ -890,11 +896,12 @@ class OllamaAnalyzer:
 
         Rules:
         1. Output strictly YAML — no Markdown, no explanations, no extra text.
-        2. Each file must include full updated content (including imports, existing logic, formatting).
-        3. If a reference component is provided, incorporate its structure or behavior appropriately.
+        2. Each file must include full updated content (imports, logic, formatting).
+        3. If a reference component is provided, follow its **layout and styling** for the new component.
         4. Support multiple requirements/components sequentially.
         5. Keep indentation consistent and valid for YAML.
         """
+
 
         print("fulllllllllllllllllllllllllllllll")
         print(system_prompt)
