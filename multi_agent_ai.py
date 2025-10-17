@@ -842,8 +842,9 @@ class OllamaAnalyzer:
         for i, req in enumerate(requirements, 1):
             ref_comp_name = req.get('referenceComponent')
             ref_comp_data = reference_components.get(ref_comp_name, {})
+            component_name = req['component']
 
-            prompt_parts.append(f"## REQUIREMENT {i}: {req['component']}")
+            prompt_parts.append(f"## REQUIREMENT {i}: {component_name}")
             prompt_parts.append(f"**Task:** {req['requirement']}")
             prompt_parts.append(f"**Reference Component:** {ref_comp_name}")
             prompt_parts.append("")
@@ -858,20 +859,31 @@ class OllamaAnalyzer:
                     prompt_parts.append("```")
                     prompt_parts.append("")
 
-                    # Add specific instructions based on the requirement
-                    if "navigation" in req['requirement'].lower() or "menu" in req['requirement'].lower():
-                        prompt_parts.append("**INSTRUCTIONS FOR NAVIGATION:**")
-                        prompt_parts.append("- ONLY add the 'Products' link between 'Home' and 'Contact Us'")
-                        prompt_parts.append("- DO NOT modify existing styling, classes, or structure")
-                        prompt_parts.append("- Keep all existing classes exactly as they are")
-                        prompt_parts.append("- Only add: <Link to=\"/products\" className=\"text-white hover:text-blue-200\">Products</Link>")
+                    # UNIVERSAL MODIFICATION INSTRUCTIONS - WORKS FOR ANY COMPONENT
+                    prompt_parts.append("**UNIVERSAL MODIFICATION INSTRUCTIONS:**")
+                    prompt_parts.append(f"- MODIFY the {component_name} component by making MINIMAL changes")
+                    prompt_parts.append("- OUTPUT THE COMPLETE COMPONENT CODE with your modifications")
+                    prompt_parts.append("- PRESERVE all existing functionality, styling, and structure")
+                    prompt_parts.append("- ONLY make the specifically requested changes")
+                    prompt_parts.append("- Maintain identical spacing, padding, and styling patterns")
+                    prompt_parts.append("- Keep all existing classes, props, and logic exactly as they are")
+                    prompt_parts.append("- Insert new elements in the correct position relative to existing elements")
 
-                    elif "form" in req['requirement'].lower() or "crud" in req['requirement'].lower():
-                        prompt_parts.append("**INSTRUCTIONS FOR FORM:**")
-                        prompt_parts.append("- Follow EXACT same layout and structure as the reference form")
-                        prompt_parts.append("- Use identical container classes and styling")
-                        prompt_parts.append("- Replace form fields but keep same validation pattern")
-                        prompt_parts.append("- Maintain identical spacing, padding, and button styling")
+                    # Dynamic guidance based on component type
+                    if any(word in req['requirement'].lower() for word in ['form', 'field', 'input']):
+                        prompt_parts.append("- For forms: Add new fields in logical positions, update state if needed")
+                        prompt_parts.append("- Follow the same input styling and validation patterns")
+
+                    elif any(word in req['requirement'].lower() for word in ['header', 'menu', 'nav', 'link']):
+                        prompt_parts.append("- For navigation: Insert new links/menu items in logical order")
+                        prompt_parts.append("- Maintain existing navigation structure and styling")
+
+                    elif any(word in req['requirement'].lower() for word in ['table', 'list', 'grid']):
+                        prompt_parts.append("- For data displays: Add new columns/items following existing patterns")
+                        prompt_parts.append("- Maintain consistent spacing and alignment")
+
+                    else:
+                        prompt_parts.append("- Analyze the reference structure and insert new content appropriately")
 
                 else:
                     prompt_parts.append(f"*Reference code for {ref_comp_name} not found*")
@@ -882,18 +894,22 @@ class OllamaAnalyzer:
 
         # 4. Technical Specifications
         prompt_parts.append("## TECHNICAL SPECIFICATIONS:")
-        prompt_parts.append(f"- Fields needed: {', '.join(feature_details.get('fields', []))}")
-        prompt_parts.append(f"- Pages required: {', '.join(feature_details.get('pages_needed', []))}")
         prompt_parts.append("- Use React with Tailwind CSS (same as existing components)")
         prompt_parts.append("- Maintain consistent styling with existing application")
-        prompt_parts.append("- Include full CRUD operations: Create, Read, Update, Delete")
         prompt_parts.append("- Follow React best practices")
-        prompt_parts.append("- If no changes in referenced components Dont do any changes.")
-        prompt_parts.append("- If changes required in components or referenced components please do change only requested change if they need but dont change other css without neeeds")
-
+        prompt_parts.append("- Preserve all existing imports, hooks, and logic")
         prompt_parts.append("")
 
-        # 5. STRICT OUTPUT FORMAT REQUIREMENTS
+        # 5. UNIVERSAL MODIFICATION STRATEGY
+        prompt_parts.append("## UNIVERSAL MODIFICATION STRATEGY:")
+        prompt_parts.append("1. ANALYZE the reference component structure")
+        prompt_parts.append("2. IDENTIFY where to insert new elements based on the requirement")
+        prompt_parts.append("3. MAKE minimal changes to achieve the requirement")
+        prompt_parts.append("4. PRESERVE all existing code, styling, and functionality")
+        prompt_parts.append("5. OUTPUT the complete modified component")
+        prompt_parts.append("")
+
+        # 6. STRICT OUTPUT FORMAT REQUIREMENTS
         prompt_parts.append("## CRITICAL OUTPUT INSTRUCTIONS:")
         prompt_parts.append("""
     YOU MUST RESPOND WITH ONLY VALID YAML IN THIS EXACT FORMAT. NO EXPLANATIONS, NO MARKDOWN, NO CODE BLOCKS.
@@ -910,8 +926,6 @@ class OllamaAnalyzer:
     - Comments outside the YAML structure
     - Code blocks outside file content
     - Any text before or after the YAML
-    - If no changes in referenced components Dont do any changes
-    - If changes required in components or referenced components please do change only requested change if they need but dont change other css without neeeds
 
     YOUR OUTPUT MUST START WITH 'projects:' AND END WITH THE LAST FILE CONTENT.
 
@@ -928,54 +942,26 @@ class OllamaAnalyzer:
       - project_path: "/media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app"
         project_type: "react"
         files:
-          - path: "src/components/Header.js"
+          - path: "src/components/ComponentName.js"  # DYNAMIC PATH BASED ON REQUIREMENT
             content: |
               import React from 'react';
-              import { Link } from 'react-router-dom';
+              // ALL existing imports preserved
 
-              const Header = () => {
+              const ComponentName = () => {
+                // ALL existing state, hooks, logic preserved
+
                 return (
-                  <nav className="bg-blue-600 p-4">
-                    <div className="container mx-auto">
-                      <div className="space-x-4">
-                        <Link to="/" className="text-white hover:text-blue-200">Home</Link>
-                        <Link to="/products" className="text-white hover:text-blue-200">Products</Link>
-                        <Link to="/contact" className="text-white hover:text-blue-200">Contact Us</Link>
-                      </div>
-                    </div>
-                  </nav>
-                );
-              };
-
-              export default Header;
-
-          - path: "src/components/Products/ProductForm.js"
-            content: |
-              import React, { useState } from 'react';
-              import { useNavigate } from 'react-router-dom';
-
-              const ProductForm = ({ isEdit = false, productId }) => {
-                const [formData, setFormData] = useState({
-                  name: '',
-                  description: '',
-                  sku: ''
-                });
-                const navigate = useNavigate();
-
-                // Follow EXACT same structure as ContactForm reference
-                return (
-                  <div className="min-h-screen bg-gray-100 py-8">
-                    <div className="max-w-md mx-auto bg-white p-8 rounded-lg shadow-md">
-                      <h2 className="text-2xl font-bold mb-6">Add Product</h2>
-                      <form>
-                        {/* Form fields following ContactForm structure */}
-                      </form>
-                    </div>
+                  <div>
+                    {/* ALL existing JSX preserved */}
+                    {/* NEW elements inserted in correct positions */}
+                    {/* ALL existing styling and classes preserved */}
                   </div>
                 );
               };
 
-              export default ProductForm;
+              export default ComponentName;
+
+          # ADD MORE FILES AS NEEDED BASED ON REQUIREMENTS
 
     install_commands:
       - echo "No additional packages required"
@@ -986,7 +972,42 @@ class OllamaAnalyzer:
       react_devDependencies: []
     """)
 
+        # 7. DYNAMIC EXAMPLES BASED ON COMMON COMPONENT TYPES
+        prompt_parts.append("## DYNAMIC MODIFICATION EXAMPLES:")
+        prompt_parts.append("""
+    ### FORM MODIFICATION EXAMPLE:
+    - REQUIREMENT: "Add phone_number field to contact form"
+    - ACTION: Insert phone field in logical form order, add to state, preserve all other fields
+
+    ### HEADER MODIFICATION EXAMPLE:
+    - REQUIREMENT: "Add Login link to header"
+    - ACTION: Insert Login link in navigation, preserve all existing links and styling
+
+    ### TABLE MODIFICATION EXAMPLE:
+    - REQUIREMENT: "Add status column to product table"
+    - ACTION: Add new table column, preserve all existing columns and data
+
+    ### ANY COMPONENT MODIFICATION:
+    - REQUIREMENT: "Add new feature to existing component"
+    - ACTION: Analyze structure, insert new elements appropriately, preserve everything else
+    """)
+
         return "\n".join(prompt_parts)
+
+    def _get_component_code(self, component_name, component_data):
+        """
+        Extract component code from reference component data
+        """
+        # Priority order for finding component code
+        if component_data.get('appCode'):
+            return component_data['appCode']
+        elif component_data.get('code'):
+            return component_data['code']
+        elif component_data.get('text'):
+            return component_data['text']
+        else:
+            # Fallback: try to construct from available data
+            return f"// Reference component: {component_name}\n// Description: {component_data.get('description', 'No description available')}"
 
     def _get_component_code(self, component_name: str, component_data: dict) -> str:
         """
