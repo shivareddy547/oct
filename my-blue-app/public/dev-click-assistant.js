@@ -1,4 +1,3 @@
-// /media/shivareddy/E/oct-2025/15_evg/oct/my-blue-app/public/dev-click-assistant.js
 (function() {
     'use strict';
 
@@ -16,15 +15,69 @@
     let toolbar = null;
     let globalFeatureRequest = "";
     let globalFeatureDetails = "";
+    let activeModal = null; // Keeps track of which modal is open
+
+
+    // ===== New Component Mode State =====
+    let isNewComponentMode = false;
 
     // ===== Utilities =====
     const saveSelections = () => {
-        localStorage.setItem("dev_requirements", JSON.stringify(selections));
+        // Ensure referenceComponents exists
+        if (!window.referenceComponents) window.referenceComponents = {};
+
+        // Merge reference_components from each requirement into global referenceComponents
+        selections.forEach(req => {
+            if (req.reference_components && Array.isArray(req.reference_components)) {
+                req.reference_components.forEach(refObj => {
+                    if (!referenceComponents[refObj.name]) {
+                        referenceComponents[refObj.name] = {
+                            name: refObj.name,
+                            description: refObj.description || "",
+                        };
+                    } else {
+                        // Update description if changed
+                        referenceComponents[refObj.name].description = refObj.description || referenceComponents[refObj.name].description;
+                    }
+                });
+            }
+        });
+
+        // Save everything together
+        const dataToSave = {
+            feature_request:  "",
+            requirements: selections,
+            referenceComponents: referenceComponents,
+        };
+
+        localStorage.setItem("dev_requirements", JSON.stringify(dataToSave, null, 2));
+
+        console.log("✅ Saved requirements with reference components:", dataToSave);
     };
+
 
     const saveReferenceComponents = () => {
         localStorage.setItem("dev_reference_components", JSON.stringify(referenceComponents));
     };
+
+    function loadSelections() {
+        try {
+            const saved = localStorage.getItem("dev_requirements");
+            if (saved) {
+                const parsed = JSON.parse(saved);
+                // Ensure selections is an array
+                selections = Array.isArray(parsed.requirements) ? parsed.requirements : [];
+            } else {
+                selections = [];
+            }
+        } catch (e) {
+            console.error("Error loading selections:", e);
+            selections = [];
+        }
+    }
+
+// Call this at the start
+    loadSelections();
 
     const clearSelections = () => {
         selections = [];
@@ -258,7 +311,8 @@
                 text: defaultAppText,
                 requirement: 'Update App.js routing configuration as needed for new features',
                 referenceComponent: 'App',
-                appCode: defaultAppCode
+                appCode: defaultAppCode,
+                isNewComponent: false
             });
         }
 
@@ -440,6 +494,7 @@
             </div>
             
             <textarea 
+                id="componentRequirement"
                 placeholder="Describe what should be changed or added to this component..." 
                 style="
                     width: 100%; 
@@ -501,7 +556,7 @@
         document.body.appendChild(box);
         activeInputBox = box;
 
-        const textarea = box.querySelector("textarea");
+        const textarea = box.querySelector("#componentRequirement");
         textarea.focus();
 
         // ===== Draggable functionality =====
@@ -564,15 +619,20 @@
                 return;
             }
 
-            // Update global feature request and details
-            if (featureRequest) globalFeatureRequest = featureRequest;
-            if (featureDetails) globalFeatureDetails = featureDetails;
+            // Update global feature request and details (persist)
+            globalFeatureRequest = featureRequest;
+            globalFeatureDetails = featureDetails;
+            // Save globals to localStorage so they persist across UI interactions
+            localStorage.setItem("dev_global_feature_request", globalFeatureRequest);
+            localStorage.setItem("dev_global_feature_details", globalFeatureDetails);
 
+            // Push new requirement object (existing component)
             selections.push({
                 component: componentName,
                 text: elementText,
                 requirement: requirementText,
-                referenceComponent: isReference ? componentName : null
+                referenceComponent: isReference ? componentName : null,
+                isNewComponent: false // Mark as existing component
             });
 
             saveSelections();
@@ -645,6 +705,215 @@
         };
     }
 
+    // ===== New Component Modal =====
+    function showNewComponentModal() {
+        if (activeModal) return;
+        activeModal = "new_component";
+
+        document.querySelectorAll(".dev-modal-overlay").forEach((el) => el.remove());
+
+        const overlay = document.createElement("div");
+        overlay.className = "dev-modal-overlay";
+        Object.assign(overlay.style, {
+            position: "fixed",
+            top: 0,
+            left: 0,
+            width: "100%",
+            height: "100%",
+            background: "rgba(0,0,0,0.75)",
+            zIndex: 1000000,
+            display: "flex",
+            justifyContent: "center",
+            alignItems: "center",
+        });
+
+        const modal = document.createElement("div");
+        modal.className = "dev-new-component-modal";
+        Object.assign(modal.style, {
+            background: "#1a1a2a",
+            color: "#fff",
+            padding: "25px",
+            borderRadius: "12px",
+            width: "600px",
+            maxHeight: "85%",
+            overflowY: "auto",
+            border: "1px solid #444",
+        });
+
+        modal.innerHTML = `
+    <h3 style="color: #00ff88; margin-bottom: 15px;">🆕 Create New Component</h3>
+
+    <label style="display:block; font-size:13px; color:#ccc; margin-bottom:5px;">Component Name</label>
+    <input id="newComponentName" style="width:100%; padding:8px; border-radius:6px; border:none; margin-bottom:12px; background:#2a2a3a; color:#fff;" placeholder="e.g. ProductList" />
+
+    <label style="display:block; font-size:13px; color:#ccc; margin-bottom:5px;">Component Type</label>
+    <input id="newComponentType" style="width:100%; padding:8px; border-radius:6px; border:none; margin-bottom:12px; background:#2a2a3a; color:#fff;" placeholder="e.g. component / page / context" />
+
+    <label style="display:block; font-size:13px; color:#ccc; margin-bottom:5px;">Requirement / Description</label>
+    <textarea id="newComponentRequirement" rows="4" style="width:100%; padding:8px; border-radius:6px; border:none; background:#2a2a3a; color:#fff; resize:vertical; margin-bottom:12px;"></textarea>
+
+    <label style="display:block; font-size:13px; color:#ccc; margin-bottom:5px;">Reference Components (App added by default)</label>
+    <select id="newReferenceComponents" multiple style="width:100%; padding:8px; border-radius:6px; border:none; background:#2a2a3a; color:#fff; height:120px; margin-bottom:12px;"></select>
+
+    <div id="referenceDescriptionsContainer" style="margin-bottom:20px;"></div>
+
+    <div style="text-align:right;">
+      <button id="cancelNewComponent" style="padding:8px 14px; background:#555; color:#fff; border:none; border-radius:6px; margin-right:10px; cursor:pointer;">Cancel</button>
+      <button id="saveNewComponent" style="padding:8px 14px; background:#00ff88; color:#000; border:none; border-radius:6px; font-weight:bold; cursor:pointer;">Save</button>
+    </div>
+  `;
+
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
+
+        const refSelect = modal.querySelector("#newReferenceComponents");
+        const refDescContainer = modal.querySelector("#referenceDescriptionsContainer");
+
+        // 🧠 Fetch all reference components dynamically (you can modify this list or make it API-based)
+        // If you already have them stored somewhere (like `referenceComponents` array), use that instead.
+        let availableRefs = [];
+        // try {
+        //     availableRefs = Object.keys(referenceComponents || {}); // e.g. { App: {...}, Header: {...} }
+        // } catch {
+        //     availableRefs = ["App", "Header", "ContactForm"]; // fallback
+        // }
+        availableRefs = ["App", "Header", "ContactForm"];
+        // Populate the multi-select
+        availableRefs.forEach((ref) => {
+            const opt = document.createElement("option");
+            opt.value = ref;
+            opt.textContent = ref;
+            refSelect.appendChild(opt);
+        });
+
+        // Create description boxes when selecting components
+        refSelect.addEventListener("change", () => {
+            refDescContainer.innerHTML = "";
+            const selectedRefs = Array.from(refSelect.selectedOptions).map(
+                (opt) => opt.value
+            );
+
+            selectedRefs.forEach((ref) => {
+                const div = document.createElement("div");
+                div.style.marginBottom = "10px";
+                div.innerHTML = `
+        <label style="display:block; font-size:13px; color:#ccc; margin-bottom:3px;">${ref} Description</label>
+        <textarea data-ref="${ref}" rows="2" style="width:100%; padding:6px; border-radius:6px; border:none; background:#2a2a3a; color:#fff; resize:vertical;"></textarea>
+      `;
+                refDescContainer.appendChild(div);
+            });
+        });
+
+        // Close modal function
+        const closeModal = () => {
+            overlay.remove();
+            activeModal = null;
+        };
+
+        // Event handlers - using direct function references
+        const cancelHandler = (e) => {
+            e.stopPropagation();
+            closeModal();
+        };
+
+        const saveHandler = (e) => {
+            e.stopPropagation();
+
+            const name = modal.querySelector("#newComponentName").value.trim();
+            const type = modal.querySelector("#newComponentType").value.trim();
+            const req = modal.querySelector("#newComponentRequirement").value.trim();
+
+            if (!name || !req) {
+                alert("Please enter component name and requirement");
+                return;
+            }
+
+            // Gather selected refs + always include App
+            const selectedRefs = Array.from(refSelect.selectedOptions).map(
+                (opt) => opt.value
+            );
+            const allRefs = Array.from(new Set(["App", ...selectedRefs])); // ensure no duplicates
+
+            // Build referenceComponents for this requirement
+            const reqReferenceComponents = allRefs.map((ref) => {
+                const textarea = refDescContainer.querySelector(`textarea[data-ref="${ref}"]`);
+                const desc = textarea ? textarea.value.trim() : "";
+                // Update global referenceComponents object
+                if (!referenceComponents[ref]) {
+                    referenceComponents[ref] = {
+                        name: ref,
+                        description: desc || `Reference for ${ref} component`,
+                    };
+                }
+                return referenceComponents[ref];
+            });
+
+            // Push new requirement entry
+            const newReq = {
+                component: name,
+                componentType: type || "component",
+                requirement: req,
+                referenceComponents: reqReferenceComponents,
+                isNewComponent: true,
+            };
+
+            selections.push(newReq);
+
+            // Save everything to localStorage
+            const dataToSave = {
+                feature_request: "", // can add input if needed
+                requirements: selections,
+                referenceComponents: referenceComponents,
+            };
+            localStorage.setItem("dev_requirements", JSON.stringify(dataToSave, null, 2));
+
+            closeModal();
+
+            // Update the UI
+            updateCount();
+            showNotification(`✅ New component "${name}" added`, "success");
+
+            // Show review modal to confirm
+            showReviewModal();
+        };
+
+        // Attach event listeners directly to buttons
+        const cancelBtn = modal.querySelector("#cancelNewComponent");
+        const saveBtn = modal.querySelector("#saveNewComponent");
+
+        cancelBtn.addEventListener("click", cancelHandler);
+        saveBtn.addEventListener("click", saveHandler);
+
+        // Close when clicking outside the modal
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) {
+                closeModal();
+            }
+        });
+
+        // Prevent modal close when clicking inside modal
+        modal.addEventListener("click", (e) => {
+            e.stopPropagation();
+        });
+
+        // Also close on Escape key
+        const escapeHandler = (e) => {
+            if (e.key === "Escape") {
+                closeModal();
+                document.removeEventListener("keydown", escapeHandler);
+            }
+        };
+        document.addEventListener("keydown", escapeHandler);
+
+        // Clean up escape handler when modal closes
+        overlay.addEventListener("click", (e) => {
+            if (e.target === overlay) {
+                document.removeEventListener("keydown", escapeHandler);
+                closeModal();
+            }
+        });
+    }
+
     // ===== Toolbar =====
     function buildToolbar() {
         // Remove existing toolbar if any
@@ -698,15 +967,42 @@
                     text-align: center;
                 ">${referenceCount}</span>
             </div>
+            
+            <!-- Add New Component Mode Toggle -->
+            <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 12px; padding: 8px; background: rgba(255,255,255,0.05); border-radius: 6px;">
+                <span style="font-size: 12px; color: #aaa;">Mode:</span>
+                <button id="toggleMode" style="
+                    padding: 6px 12px;
+                    background: ${isNewComponentMode ? '#00ff88' : '#444'};
+                    border: none;
+                    border-radius: 4px;
+                    cursor: pointer;
+                    color: ${isNewComponentMode ? '#000' : '#fff'};
+                    font-size: 11px;
+                    font-weight: bold;
+                    flex: 1;
+                ">
+                    ${isNewComponentMode ? '🆕 New Component' : '✏️ Edit Existing'}
+                </button>
+            </div>
+            
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
                 <button id="reviewBtn" title="Review requirements" style="flex: 1;">📝 Review</button>
                 <button id="referencesBtn" title="Manage references" style="flex: 1;">⭐ Refs</button>
                 <button id="sendBtn" title="Send to backend" style="flex: 1;">🚀 Send</button>
                 <button id="clearBtn" title="Clear all" style="flex: 1;">🗑️ Clear</button>
             </div>
-            <div style="margin-top: 10px; font-size: 11px; color: #888; text-align: center; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px;">
-                Ctrl + Click anywhere to add requirement
+            
+            <!-- New Component Mode Instructions -->
+            ${isNewComponentMode ? `
+            <div style="margin-top: 10px; font-size: 11px; color: #00ff88; text-align: center; padding: 6px; background: rgba(0,255,136,0.1); border-radius: 4px; border: 1px solid #00ff88;">
+                🆕 New Component Mode: Click anywhere to add new component
             </div>
+            ` : `
+            <div style="margin-top: 10px; font-size: 11px; color: #888; text-align: center; padding: 6px; background: rgba(0,0,0,0.3); border-radius: 4px;">
+                ✏️ Edit Mode: Ctrl+Click to modify existing components
+            </div>
+            `}
         `;
 
         document.body.appendChild(toolbar);
@@ -740,6 +1036,8 @@
         toolbar.querySelector("#sendBtn").style.color = "#000";
         toolbar.querySelector("#referencesBtn").style.background = "#ffaa00";
         toolbar.querySelector("#referencesBtn").style.color = "#000";
+        toolbar.querySelector("#toggleMode").style.background = isNewComponentMode ? "#00ff88" : "#444";
+        toolbar.querySelector("#toggleMode").style.color = isNewComponentMode ? "#000" : "#fff";
 
         // Event handlers
         toolbar.querySelector("#reviewBtn").onclick = showReviewModal;
@@ -761,6 +1059,16 @@
             }
         };
 
+        // Add mode toggle handler
+        toolbar.querySelector("#toggleMode").onclick = () => {
+            isNewComponentMode = !isNewComponentMode;
+            buildToolbar(); // Rebuild toolbar to reflect mode change
+            showNotification(
+                isNewComponentMode ? "🆕 New Component Mode: Click anywhere to add new component" : "✏️ Edit Mode: Ctrl+Click to modify existing components",
+                "info"
+            );
+        };
+
         console.log("✅ Toolbar built successfully");
     }
 
@@ -773,9 +1081,19 @@
         }
     }
 
+
+
     // ===== Review Modal =====
     function showReviewModal() {
+        // Prevent opening if another modal is active
+        if (activeModal) return;
+        activeModal = 'review';
+
+        // Remove any existing overlay just in case
+        document.querySelectorAll(".dev-modal-overlay").forEach(el => el.remove());
+
         const overlay = document.createElement("div");
+        overlay.className = "dev-modal-overlay";
         Object.assign(overlay.style, {
             position: "fixed",
             left: 0,
@@ -804,6 +1122,10 @@
             boxShadow: "0 20px 40px rgba(0,0,0,0.5)"
         });
 
+        // Separate new and existing components
+        const newComponents = selections.filter(req => req.isNewComponent);
+        const existingComponents = selections.filter(req => !req.isNewComponent);
+
         modal.innerHTML = `
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; border-bottom: 1px solid #444; padding-bottom: 15px;">
                 <h3 style="margin: 0; color: #00e0ff; font-size: 18px;">📝 Requirements Review</h3>
@@ -821,11 +1143,13 @@
                     justify-content: center;
                 ">×</button>
             </div>
-            
+
             <div style="margin-bottom: 20px;">
                 <div style="font-size: 14px; color: #aaa; display: flex; gap: 15px; margin-bottom: 15px;">
                     <span>📋 ${selections.length} requirement(s)</span>
                     <span>⭐ ${Object.keys(referenceComponents).length} reference(s)</span>
+                    <span>🆕 ${newComponents.length} new component(s)</span>
+                    <span>✏️ ${existingComponents.length} existing component(s)</span>
                 </div>
                 
                 <div style="background: rgba(255,255,255,0.05); padding: 15px; border-radius: 8px; margin-bottom: 15px;">
@@ -839,7 +1163,28 @@
                 </div>
             </div>
             
-            <div id="requirementsList" style="min-height: 100px;"></div>
+            ${newComponents.length > 0 ? `
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #00ff88; margin-bottom: 10px; font-size: 16px;">🆕 New Components to Create</h4>
+                <div id="newComponentsList"></div>
+            </div>
+            ` : ''}
+            
+            ${existingComponents.length > 0 ? `
+            <div style="margin-bottom: 20px;">
+                <h4 style="color: #00e0ff; margin-bottom: 10px; font-size: 16px;">✏️ Existing Components to Modify</h4>
+                <div id="existingComponentsList"></div>
+            </div>
+            ` : ''}
+            
+            ${selections.length === 0 ? `
+            <div id="emptyState" style="text-align: center; padding: 40px; color: #666; background: rgba(255,255,255,0.05); border-radius: 8px;">
+                <div style="font-size: 48px; margin-bottom: 10px;">📝</div>
+                <div style="font-size: 16px; margin-bottom: 8px;">No requirements yet</div>
+                <div style="font-size: 13px; color: #888;">Use the toolbar to add requirements</div>
+            </div>
+            ` : ''}
+            
             <div style="margin-top: 20px; text-align: right; border-top: 1px solid #444; padding-top: 15px;">
                 <button id="exportJson" style="
                     padding: 10px 16px;
@@ -864,18 +1209,62 @@
             </div>
         `;
 
-        const requirementsList = modal.querySelector("#requirementsList");
+        overlay.appendChild(modal);
+        document.body.appendChild(overlay);
 
-        if (selections.length === 0) {
-            requirementsList.innerHTML = `
-                <div style="text-align: center; padding: 40px; color: #666; background: rgba(255,255,255,0.05); border-radius: 8px;">
-                    <div style="font-size: 48px; margin-bottom: 10px;">📝</div>
-                    <div style="font-size: 16px; margin-bottom: 8px;">No requirements yet</div>
-                    <div style="font-size: 13px; color: #888;">Hold Ctrl and click anywhere to add a requirement</div>
-                </div>
-            `;
-        } else {
-            selections.forEach((req, index) => {
+        const newComponentsList = modal.querySelector("#newComponentsList");
+        const existingComponentsList = modal.querySelector("#existingComponentsList");
+
+        // Render new components
+        if (newComponents.length > 0) {
+            newComponents.forEach((req, index) => {
+                const reqElement = document.createElement("div");
+                reqElement.style.cssText = `
+                    background: rgba(0,255,136,0.1);
+                    padding: 15px;
+                    margin-bottom: 12px;
+                    border-radius: 8px;
+                    border-left: 4px solid #00ff88;
+                    transition: background 0.2s;
+                `;
+
+                reqElement.innerHTML = `
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 8px;">
+                        <div style="flex: 1;">
+                            <b style="color: #00ff88; font-size: 15px;">${req.component}</b>
+                            <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px;">
+                                <span style="background: #00ff88; color: #000; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">
+                                    NEW ${req.componentType?.toUpperCase() || 'COMPONENT'}
+                                </span>
+                                ${req.referenceComponent ?
+                    `<span style="background: #ffaa00; color: #000; padding: 2px 6px; border-radius: 10px; font-size: 10px; font-weight: bold;">REFERENCE: ${req.referenceComponent}</span>` :
+                    ''
+                }
+                            </div>
+                        </div>
+                        <button class="deleteReq" data-index="${selections.indexOf(req)}" style="
+                            background: #ff4444; 
+                            color: #fff; 
+                            border: none; 
+                            padding: 6px 10px; 
+                            border-radius: 4px; 
+                            cursor: pointer;
+                            font-size: 11px;
+                            font-weight: bold;
+                        ">🗑️ Delete</button>
+                    </div>
+                    <div style="margin: 10px 0; font-size: 14px; line-height: 1.4; background: rgba(0,0,0,0.3); padding: 10px; border-radius: 4px;">
+                        ${req.requirement}
+                    </div>
+                `;
+
+                newComponentsList.appendChild(reqElement);
+            });
+        }
+
+        // Render existing components
+        if (existingComponents.length > 0) {
+            existingComponents.forEach((req, index) => {
                 const reqElement = document.createElement("div");
                 reqElement.style.cssText = `
                     background: rgba(255,255,255,0.05);
@@ -897,7 +1286,7 @@
                 }
                             </div>
                         </div>
-                        <button class="deleteReq" data-index="${index}" style="
+                        <button class="deleteReq" data-index="${selections.indexOf(req)}" style="
                             background: #ff4444; 
                             color: #fff; 
                             border: none; 
@@ -918,27 +1307,34 @@
                     ` : ''}
                 `;
 
-                requirementsList.appendChild(reqElement);
-            });
-
-            // Add delete handlers
-            modal.querySelectorAll(".deleteReq").forEach(btn => {
-                btn.onclick = (e) => {
-                    const index = parseInt(e.target.getAttribute("data-index"));
-                    if (confirm("Delete this requirement?")) {
-                        selections.splice(index, 1);
-                        saveSelections();
-                        overlay.remove();
-                        updateCount();
-                        showReviewModal();
-                    }
-                };
+                existingComponentsList.appendChild(reqElement);
             });
         }
 
+        // Add delete handlers
+        modal.querySelectorAll(".deleteReq").forEach(btn => {
+            btn.onclick = (e) => {
+                const index = parseInt(e.target.getAttribute("data-index"));
+                if (confirm("Delete this requirement?")) {
+                    selections.splice(index, 1);
+                    saveSelections();
+                    overlay.remove();
+                    activeModal = null;
+                    updateCount();
+                    showReviewModal();
+                }
+            };
+        });
+
+
         // Export JSON
         modal.querySelector("#exportJson").onclick = () => {
-            const dataStr = JSON.stringify({ requirements: selections }, null, 2);
+            const dataStr = JSON.stringify({
+                requirements: selections,
+                globalFeatureRequest,
+                globalFeatureDetails,
+                referenceComponents
+            }, null, 2);
             const blob = new Blob([dataStr], { type: "application/json" });
             const url = URL.createObjectURL(blob);
             const a = document.createElement("a");
@@ -950,7 +1346,10 @@
         };
 
         // Close handlers
-        const closeModal = () => overlay.remove();
+        const closeModal = () => {
+            overlay.remove();
+            activeModal = null;
+        };
         modal.querySelector("#closeReview").onclick = closeModal;
         modal.querySelector("#closeModal").onclick = closeModal;
 
@@ -964,6 +1363,8 @@
             }
         };
     }
+
+
 
     function showReferencesModal() {
         const overlay = document.createElement("div");
@@ -1114,7 +1515,9 @@
                     component: req.component,
                     text: req.text,
                     requirement: req.requirement,
-                    referenceComponent: req.referenceComponent
+                    referenceComponent: req.referenceComponent,
+                    isNewComponent: req.isNewComponent || false, // Include the new component flag
+                    componentType: req.componentType || 'component'
                 })),
                 referenceComponents: Object.keys(referenceComponents).reduce((acc, key) => {
                     const ref = referenceComponents[key];
@@ -1137,7 +1540,8 @@
                     text: 'Complete React App with routing',
                     requirement: 'Update App.js routing configuration as needed for new features',
                     referenceComponent: 'App',
-                    appCode: referenceComponents['App']?.appCode
+                    appCode: referenceComponents['App']?.appCode,
+                    isNewComponent: false
                 });
             }
 
@@ -1193,24 +1597,33 @@
 
     // ===== Event Listeners =====
     function setupEventListeners() {
-        // Click handler - Ctrl+Click anywhere
+        // Click handler - different behavior based on mode
         document.addEventListener("click", (e) => {
-            // Ignore clicks on our own UI elements
-            if (activeInputBox || e.target.closest(".dev-input-box") || e.target.closest(".dev-toolbar")) {
+            // Ignore clicks on our own UI elements, overlays, or modals
+            if (activeInputBox || e.target.closest(".dev-input-box") || e.target.closest(".dev-toolbar") || e.target.closest(".dev-modal") || e.target.closest(".dev-modal-overlay")) {
                 return;
             }
 
-            // Use Ctrl+Click to add requirements
-            if (e.ctrlKey || e.metaKey) {
+            if (isNewComponentMode) {
+                // In new component mode, show the new component modal on any click
                 e.preventDefault();
                 e.stopPropagation();
+                showNewComponentModal();
+            } else {
+                // In existing mode, ONLY use Ctrl+Click for existing components
+                // Regular clicks should do nothing (allow normal page interaction)
+                if (e.ctrlKey || e.metaKey) {
+                    e.preventDefault();
+                    e.stopPropagation();
 
-                const clickedElement = e.target;
-                const componentName = getReactComponentName(clickedElement);
-                const domPath = getEnhancedDomPath(clickedElement);
+                    const clickedElement = e.target;
+                    const componentName = getReactComponentName(clickedElement);
+                    const domPath = getEnhancedDomPath(clickedElement);
 
-                highlightElement(clickedElement);
-                showInputBox(e.clientX, e.clientY, clickedElement, componentName, domPath);
+                    highlightElement(clickedElement);
+                    showInputBox(e.clientX, e.clientY, clickedElement, componentName, domPath);
+                }
+                // If not Ctrl+Click in Edit Mode, do nothing - allow normal page clicks
             }
         }, true);
 
@@ -1220,9 +1633,8 @@
             if (e.key === "Escape" && activeInputBox) {
                 // Clean up event listeners
                 if (activeInputBox) {
-                    activeInputBox.removeEventListener("mousedown", dragStart);
-                    document.removeEventListener("mouseup", dragEnd);
-                    document.removeEventListener("mousemove", drag);
+                    // Attempt to remove drag listeners if they exist (safe-guard - functions in outer scope)
+                    try { activeInputBox.removeEventListener("mousedown", dragStart); } catch(_) {}
                 }
                 activeInputBox.remove();
                 activeInputBox = null;
@@ -1233,6 +1645,17 @@
                 e.preventDefault();
                 showReviewModal();
             }
+
+            // Ctrl+N to toggle new component mode
+            if (e.key === "n" && (e.ctrlKey || e.metaKey)) {
+                e.preventDefault();
+                isNewComponentMode = !isNewComponentMode;
+                buildToolbar();
+                showNotification(
+                    isNewComponentMode ? "🆕 New Component Mode: Click anywhere to add new component" : "✏️ Edit Mode: Ctrl+Click to modify existing components",
+                    "info"
+                );
+            }
         });
 
         console.log("✅ Event listeners setup");
@@ -1241,6 +1664,10 @@
     // ===== Initialize =====
     function initialize() {
         console.log("🚀 Initializing Dev Assistant...");
+
+        // Load saved globals if exist
+        globalFeatureRequest = localStorage.getItem("dev_global_feature_request") || globalFeatureRequest;
+        globalFeatureDetails = localStorage.getItem("dev_global_feature_details") || globalFeatureDetails;
 
         // Clean up any existing instances
         const existingToolbar = document.querySelector(".dev-toolbar");
@@ -1261,11 +1688,12 @@
 
         // Show welcome message
         setTimeout(() => {
-            showNotification("🧠 Dev Assistant Ready - Ctrl+Click anywhere to add requirements", "success");
+            showNotification("🧠 Dev Assistant Ready - Use Ctrl+Click (Edit Mode) or click anywhere (New Component Mode)", "success");
         }, 500);
 
         console.log("✅ Dev Assistant initialized successfully");
         console.log(`📊 ${selections.length} requirements, ${Object.keys(referenceComponents).length} references loaded`);
+        console.log(`🎯 Current mode: ${isNewComponentMode ? 'New Component' : 'Edit Existing'}`);
     }
 
     // Start initialization when DOM is ready
