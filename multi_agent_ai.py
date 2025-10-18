@@ -757,7 +757,7 @@ class OllamaAnalyzer:
         """
         lines = response.splitlines()
         yaml_lines = ["projects:"]
-        yaml_lines.append("  - project_path: \"/Users/shivareddy/embed-aplication/oct-17/oct/my-blue-app\"")
+        yaml_lines.append("  - project_path: \"/home/opc/oct\"")
         yaml_lines.append("    project_type: \"react\"")
         yaml_lines.append("    files:")
 
@@ -971,7 +971,7 @@ class OllamaAnalyzer:
 
     START YOUR RESPONSE WITH:
     projects:
-      - project_path: "/Users/shivareddy/embed-aplication/oct-17/oct/my-blue-app"
+      - project_path: "/home/opc/oct/my-blue-app"
         project_type: "react"
         files:
 
@@ -989,7 +989,7 @@ class OllamaAnalyzer:
     ## EXPECTED YAML STRUCTURE:
 
     projects:
-      - project_path: "/Users/shivareddy/embed-aplication/oct-17/oct/my-blue-app"
+      - project_path: "/home/opc/oct/my-blue-app"
         project_type: "react"
         files:
           - path: "src/components/ComponentName.js"
@@ -1164,7 +1164,7 @@ YOU MUST RESPOND WITH ONLY VALID YAML IN THIS EXACT FORMAT — NO EXPLANATIONS, 
 
 START YOUR RESPONSE WITH:
 projects:
-  - project_path: "/Users/shivareddy/embed-aplication/oct-17/oct/my-blue-app"
+  - project_path: "/home/opc/oct/my-blue-app"
     project_type: "react"
     files:
 
@@ -1175,7 +1175,7 @@ INCLUDE ALL COMPONENTS THAT NEED CHANGES:
 
 YAML STRUCTURE EXAMPLE:
 projects:
-  - project_path: "/Users/shivareddy/embed-aplication/oct-17/oct/my-blue-app"
+  - project_path: "/home/opc/oct/my-blue-app"
     project_type: "react"
     files:
       - path: "src/App.js"
