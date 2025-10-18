@@ -4,7 +4,7 @@
 EC2_INSTANCE_IP="152.67.5.153"
 KEY_FILE_PATH="/home/shivareddy/.ssh/id_rsa"
 RAILS_REPO_URL="git@github.com:shivareddy547/oct.git"
-BRANCH_NAME="main"
+BRANCH_NAME="oct_18_all_working_yaml_react_front"
 
 # Connect to EC2 instance via SSH
 ssh -i "$KEY_FILE_PATH" opc@"$EC2_INSTANCE_IP" << 'EOF'
@@ -24,9 +24,9 @@ cd ai
 
 # Reset and pull the latest changes from the specified branch
 git checkout .
-git fetch origin main
-git checkout main
-git pull origin main
+git fetch origin oct_18_all_working_yaml_react_front
+git checkout oct_18_all_working_yaml_react_front
+git pull origin oct_18_all_working_yaml_react_front
 
 # Ensure correct Ruby shebang paths
 sed -i '1s|^.*$|#!/usr/local/bin/ruby|' /home/opc/bin/bundle
@@ -151,7 +151,6 @@ echo "🌐 Access URLs:"
 echo "🔹 Rails API:   $APPLICATION_HOST:$RAILS_PORT"
 echo "🔹 React App:   $APPLICATION_HOST:$REACT_PORT"
 echo "🔹 Python UI:   $APPLICATION_HOST:$PYTHON_PORT"
-
 
 
 
