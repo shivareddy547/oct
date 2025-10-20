@@ -7,7 +7,7 @@ SERVER_IP="152.67.5.153"
 KEY_PATH="/home/shivareddy/.ssh/id_rsa"
 REPO_URL="git@github.com:shivareddy547/oct.git"
 PROJECT_DIR="/home/opc/oct"
-BRANCH="all_server_actions_added_oct_14"
+BRANCH="oct_18_all_working_yaml_react_front"
 
 # ============================
 # PROCESS CLEANUP
@@ -42,6 +42,12 @@ redis-cli FLUSHALL
 # ============================
 ssh -i "$KEY_PATH" opc@"$SERVER_IP" bash -s <<'EOF'
 set -e
+cd /home/opc/oct
+git checkout .
+git fetch origin oct_18_all_working_yaml_react_front
+git checkout oct_18_all_working_yaml_react_front
+git pull origin oct_18_all_working_yaml_react_front
+
 
 PROJECT_DIR="/home/opc/oct"
 REACT_PATH="$PROJECT_DIR/my-blue-app"
@@ -79,8 +85,10 @@ cd "$PROJECT_DIR"
 if [ ! -d ".git" ]; then
   git clone "git@github.com:shivareddy547/oct.git" .
 fi
-git fetch origin all_server_actions_added_oct_14
-git reset --hard origin/all_server_actions_added_oct_14
+git clean -fd
+git checkout .
+git fetch origin oct_18_all_working_yaml_react_front
+git reset --hard origin/oct_18_all_working_yaml_react_front
 echo "✅ Code updated successfully!"
 
 # ============================

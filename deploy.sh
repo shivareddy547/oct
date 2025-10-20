@@ -57,7 +57,7 @@ export APPLICATION_HOST="https://$EC2_INSTANCE_IP"
 # bin/dev &
 
 # Use ngrok to expose port 3000 (ensure ngrok is installed on your server)
-ngrok http --url=awfully-quick-monkfish.ngrok-free.app 3000 &
+#ngrok http --url=awfully-quick-monkfish.ngrok-free.app 3000 &
 
 rm -rf tmp/
 bundle exec rails s -b 0.0.0.0 &
