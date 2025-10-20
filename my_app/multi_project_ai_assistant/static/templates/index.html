@@ -1,0 +1,678 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Multi-Project AI Assistant 🤖</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/socket.io/4.0.1/socket.io.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/highlight.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.7.0/styles/github.min.css">
+    <link rel="stylesheet" href="/static/public/app.css">
+    <style>
+        .provider-selector {
+            display: flex;
+            gap: 15px;
+            margin-bottom: 10px;
+            flex-wrap: wrap;
+        }
+        .provider-selector label {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            cursor: pointer;
+        }
+        .model-loading {
+            color: #666;
+            font-style: italic;
+        }
+        .api-key-section {
+            margin-top: 10px;
+        }
+        .api-key-input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            font-size: 14px;
+        }
+        .refresh-models-btn {
+            background: #f8f9fa;
+            border: 1px solid #ddd;
+            padding: 4px 8px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+            margin-left: 5px;
+        }
+        .refresh-models-btn:hover {
+            background: #e9ecef;
+        }
+    </style>
+</head>
+<body>
+<div class="header">
+    <h1>Multi-Project AI Assistant 🤖</h1>
+    <div class="subtitle">Works with React and Ruby on Rails applications simultaneously!</div>
+    <div style="margin-top: 10px;">
+        <a href="/profile" style="color: white; text-decoration: none; background: #6c757d; padding: 5px 10px; border-radius: 4px;">
+            ⚙️ Profile & API Keys
+        </a>
+    </div>
+</div>
+
+<div class="container">
+    <div class="chat-container">
+        <div class="chat-messages" id="chat-messages">
+            <div class="message system-message">
+                Welcome! I can help you with both React and Ruby on Rails projects. What would you like to build?
+            </div>
+        </div>
+        <div class="input-area">
+            <div class="model-selector">
+                <!-- AI Provider Radio Buttons -->
+                <div class="provider-selector">
+                    <label><input type="radio" name="provider" value="ollama" checked> Ollama Models</label>
+                    <label><input type="radio" name="provider" value="openai"> OpenAI Models</label>
+                    <label><input type="radio" name="provider" value="openrouter"> OpenRouter Models</label>
+                </div>
+
+                <!-- Model Dropdown -->
+                <div style="display: flex; align-items: center; gap: 10px;">
+                    <select id="model-select" style="flex: 1;">
+                        <option value="">Select a model...</option>
+                    </select>
+                    <button id="refresh-models" class="refresh-models-btn" title="Refresh Models">🔄</button>
+                </div>
+
+                <!-- API Key Input -->
+                <div id="api-key-container" class="api-key-section" style="display: none;">
+                    <input type="password" id="api-key-input" class="api-key-input" placeholder="Enter API key...">
+                    <small style="color: #666;">Your API key is used only for this session and not stored</small>
+                </div>
+            </div>
+            <div class="input-group">
+                <textarea
+                        id="message-input"
+                        placeholder="Describe what you want to build across your React and Rails projects (e.g., 'Add a contact form with API endpoint', 'Create user authentication system')..."
+                        rows="3"
+                ></textarea>
+                <button id="send-button">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <div class="results-panel">
+        <div class="projects-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+            <h3>Projects Info</h3>
+            <button class="rollback-button" onclick="rollbackChanges()">Rollback</button>
+        </div>
+
+        <div id="project-info">
+            <div class="file-item">Loading project information...</div>
+        </div>
+
+        <h3>Actions</h3>
+        <button class="rollback-button" onclick="rollbackMigrationChanges()">Rollback db changes</button><br>
+        <button class="rollback-button" onclick="Migrations()">Db Migrate</button><br>
+        <button class="rollback-button" onclick="restartServers()">Restart all servers</button>
+
+        <!-- React App Button Section -->
+        <div class="react-app-section" style="margin: 15px 0;">
+            <a href="http://152.67.5.153:4000/" target="_blank" style="
+                padding: 8px 16px;
+                background-color: #007bff;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+                text-decoration: none;
+                display: inline-block;
+                font-size: 14px;
+            ">Show React App Changes</a>
+        </div>
+
+        <h3>Chat History</h3>
+        <div class="history-container" id="history-container">
+            <div id="chat-history">
+                <div class="file-item">Loading history...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    const socket = io();
+    let currentYamlResponse = '';
+    let currentSessionId = '';
+    let selectedConversationId = null;
+    let currentProvider = 'ollama';
+    let currentApiKey = '';
+    let availableModels = {
+        ollama: [],
+        openai: [],
+        openrouter: []
+    };
+
+    // DOM elements
+    const chatMessages = document.getElementById('chat-messages');
+    const messageInput = document.getElementById('message-input');
+    const sendButton = document.getElementById('send-button');
+    const modelSelect = document.getElementById('model-select');
+    const projectInfo = document.getElementById('project-info');
+    const chatHistory = document.getElementById('chat-history');
+    const apiKeyContainer = document.getElementById('api-key-container');
+    const apiKeyInput = document.getElementById('api-key-input');
+    const providerRadios = document.querySelectorAll('input[name="provider"]');
+    const refreshModelsBtn = document.getElementById('refresh-models');
+
+    // Initialize provider selection
+    function initializeProviderSelection() {
+        // Set up radio button event listeners
+        providerRadios.forEach(radio => {
+            radio.addEventListener('change', function() {
+                if (this.checked) {
+                    currentProvider = this.value;
+                    loadModelsForProvider(currentProvider);
+                    toggleApiKeyInput();
+                }
+            });
+        });
+
+        // Refresh models button
+        refreshModelsBtn.addEventListener('click', function() {
+            loadModelsForProvider(currentProvider);
+        });
+
+        // Initial setup
+        loadModelsForProvider('ollama');
+        toggleApiKeyInput();
+    }
+
+    // Load models for specific provider
+    function loadModelsForProvider(provider) {
+        // Show loading state
+        modelSelect.innerHTML = '<option value="" class="model-loading">Loading models...</option>';
+        modelSelect.disabled = true;
+
+        // Emit event to server to fetch models
+        socket.emit('get_models', {
+            provider: provider,
+            api_key: currentApiKey
+        });
+    }
+
+    // Update models dropdown with fetched models
+    function updateModelsDropdown(provider, models) {
+        availableModels[provider] = models;
+
+        if (currentProvider === provider) {
+            modelSelect.innerHTML = '';
+
+            if (models.length === 0) {
+                modelSelect.innerHTML = '<option value="">No models available</option>';
+            } else {
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model.id || model.name;
+                    option.textContent = model.name || model.id;
+
+                    // Add model details as data attributes
+                    if (model.details) {
+                        option.setAttribute('data-details', JSON.stringify(model.details));
+                    }
+
+                    modelSelect.appendChild(option);
+                });
+
+                // Set default selection if available
+                if (provider === 'ollama' && models.length > 0) {
+                    const defaultModel = models.find(m => m.name && m.name.includes('coder')) || models[0];
+                    if (defaultModel) {
+                        modelSelect.value = defaultModel.id || defaultModel.name;
+                    }
+                }
+            }
+
+            modelSelect.disabled = false;
+        }
+    }
+
+    // Toggle API key input visibility
+    function toggleApiKeyInput() {
+        if (currentProvider === 'openai' || currentProvider === 'openrouter') {
+            apiKeyContainer.style.display = 'block';
+            // Clear models when switching to API-based providers without key
+            if (!currentApiKey) {
+                modelSelect.innerHTML = '<option value="">Enter API key first</option>';
+                modelSelect.disabled = true;
+            }
+        } else {
+            apiKeyContainer.style.display = 'none';
+            currentApiKey = '';
+        }
+    }
+
+    // Auto-resize textarea
+    messageInput.addEventListener('input', function() {
+        this.style.height = 'auto';
+        this.style.height = (this.scrollHeight) + 'px';
+    });
+
+    // Send message on button click
+    sendButton.addEventListener('click', sendMessage);
+
+    // Send message on Enter (but allow Shift+Enter for new line)
+    messageInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            sendMessage();
+        }
+    });
+
+    // API key input handler
+    apiKeyInput.addEventListener('input', function() {
+        currentApiKey = this.value.trim();
+        // Reload models when API key is entered/changed
+        if (currentApiKey && (currentProvider === 'openai' || currentProvider === 'openrouter')) {
+            loadModelsForProvider(currentProvider);
+        }
+    });
+
+    function sendMessage() {
+        const message = messageInput.value.trim();
+        const selectedModel = modelSelect.value;
+
+        if (!selectedModel || selectedModel === '') {
+            alert('Please select a model first!');
+            return;
+        }
+
+        if ((currentProvider === 'openai' || currentProvider === 'openrouter') && !currentApiKey) {
+            alert('Please enter your API key!');
+            apiKeyInput.focus();
+            return;
+        }
+
+        if (message) {
+            addMessage('user', message);
+            messageInput.value = '';
+            messageInput.style.height = 'auto';
+
+            // Show typing indicator
+            showTypingIndicator();
+
+            // Get selected model details
+            const selectedOption = modelSelect.options[modelSelect.selectedIndex];
+            const modelDetails = selectedOption.getAttribute('data-details');
+
+            // Send to server with selected provider, model, and API key
+            socket.emit('send_message', {
+                message: message,
+                provider: currentProvider,
+                model: selectedModel,
+                api_key: currentApiKey,
+                model_details: modelDetails ? JSON.parse(modelDetails) : null
+            });
+
+            // Disable input while processing
+            sendButton.disabled = true;
+            messageInput.disabled = true;
+            modelSelect.disabled = true;
+            providerRadios.forEach(radio => radio.disabled = true);
+            apiKeyInput.disabled = true;
+            refreshModelsBtn.disabled = true;
+        }
+    }
+
+    function formatYAML(yamlContent) {
+        if (!yamlContent) return '';
+
+        // Simple YAML syntax highlighting
+        return yamlContent
+            .replace(/(^|\s)([a-zA-Z_][a-zA-Z0-9_]*):/g, '$1<span class="yaml-key">$2</span>:')
+            .replace(/:(\s*)(["'])(.*?)\2/g, ':$1<span class="yaml-string">$2$3$2</span>')
+            .replace(/:(\s*)([0-9]+(\.[0-9]+)?)/g, ':$1<span class="yaml-number">$2</span>')
+            .replace(/:(\s*)(true|false)/g, ':$1<span class="yaml-boolean">$2</span>')
+            .replace(/:(\s*)(null)/g, ':$1<span class="yaml-null">$2</span>')
+            .replace(/#(.*)$/gm, '<span class="yaml-comment">#$1</span>');
+    }
+
+    function addMessage(sender, content, isYaml = false, conversationId = null, modelUsed = null, providerUsed = null) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${sender}-message`;
+        if (conversationId) {
+            messageDiv.setAttribute('data-conversation-id', conversationId);
+        }
+
+        if (isYaml) {
+            const formattedYaml = formatYAML(content);
+            messageDiv.innerHTML = `
+                <strong>${sender === 'user' ? 'You' : 'Assistant'}:</strong>
+                ${providerUsed || modelUsed ?
+                `<small style="color: #666; font-style: italic;">
+                        (Using: ${providerUsed ? providerUsed.toUpperCase() : ''}${providerUsed && modelUsed ? ' - ' : ''}${modelUsed || ''})
+                    </small>` : ''}
+                <div class="code-container">
+                    <div class="code-header">
+                        <span>Multi-Project YAML Configuration</span>
+                    </div>
+                    <div class="code-content">${formattedYaml}</div>
+                </div>
+                ${sender === 'assistant' ?
+                '<div class="action-buttons">' +
+                '<button class="apply-button" onclick="applyChanges()">Apply Changes</button>' +
+                '<button class="save-button" onclick="saveChanges()">Save Changes</button>' +
+                '<button class="rollback-button" onclick="rollbackChanges()">Rollback</button>' +
+                '<button class="load-response-button" onclick="loadResponse()">Load Response</button>' +
+                '</div>'
+                : ''}
+            `;
+        } else {
+            messageDiv.innerHTML = `<strong>${sender === 'user' ? 'You' : 'Assistant'}:</strong> ${content}`;
+        }
+
+        chatMessages.appendChild(messageDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function showTypingIndicator() {
+        const typingDiv = document.createElement('div');
+        typingDiv.className = 'message assistant-message typing-indicator';
+        typingDiv.id = 'typing-indicator';
+        typingDiv.innerHTML = `Assistant is thinking <span class="dot-flashing"></span>`;
+        chatMessages.appendChild(typingDiv);
+        chatMessages.scrollTop = chatMessages.scrollHeight;
+    }
+
+    function hideTypingIndicator() {
+        const typingIndicator = document.getElementById('typing-indicator');
+        if (typingIndicator) {
+            typingIndicator.remove();
+        }
+    }
+
+    function applyChanges() {
+        if (currentYamlResponse) {
+            socket.emit('apply_changes', {
+                yaml_response: currentYamlResponse,
+                conversation_id: selectedConversationId
+            });
+        }
+    }
+
+    function saveChanges() {
+        if (currentYamlResponse) {
+            socket.emit('save_changes', {
+                yaml_response: currentYamlResponse,
+                conversation_id: selectedConversationId
+            });
+        }
+    }
+
+    function rollbackChanges() {
+        if (confirm('Are you sure you want to rollback all changes across all projects?')) {
+            socket.emit('rollback_changes');
+        }
+    }
+
+    function rollbackMigrationChanges() {
+        if (confirm('Are you sure you want to rollback last changes of db?')) {
+            socket.emit('rollback_migration_changes');
+        }
+    }
+
+    function Migrations() {
+        if (confirm('Are you sure you want to migrate tables db?')) {
+            socket.emit('migration_changes');
+        }
+    }
+
+    function restartServers() {
+        if (confirm('Are you sure you want to restart all servers?')) {
+            socket.emit('restart_servers');
+        }
+    }
+
+    function loadResponse() {
+        if (currentYamlResponse) {
+            alert('Response loaded for review. You can now apply or save the changes.');
+        }
+    }
+
+    // MISSING FUNCTIONS THAT WERE CAUSING ERRORS:
+
+    function updateProjectInfo(info) {
+        if (info && info.projects) {
+            let projectsHTML = '';
+            info.projects.forEach(project => {
+                const badgeClass = `badge-${project.type}`;
+                projectsHTML += `
+                    <div class="project-item project-${project.type}">
+                        <span class="project-badge ${badgeClass}">${project.type.toUpperCase()}</span>
+                        <strong>${project.root.split('/').pop()}</strong>
+                        <div class="file-item">Files: ${project.file_count}</div>
+                    </div>
+                `;
+            });
+            projectInfo.innerHTML = projectsHTML;
+        }
+    }
+
+    function updateChatHistory(history) {
+        if (history && history.conversations && history.conversations.length > 0) {
+            let historyHTML = '';
+
+            history.conversations.forEach(conv => {
+                const date = new Date(conv.created_at).toLocaleString();
+                const shortQuery = conv.query && conv.query.length > 50 ?
+                    conv.query.substring(0, 50) + '...' : conv.query || 'No query';
+                const shortYaml = conv.yaml_response && conv.yaml_response.length > 100 ?
+                    conv.yaml_response.substring(0, 100) + '...' : conv.yaml_response || 'No YAML response';
+
+                historyHTML += `
+                    <div class="history-item"
+                         data-conversation-id="${conv.id}"
+                         data-query="${escapeHtml(conv.query || '')}"
+                         data-yaml="${escapeHtml(conv.yaml_response || '')}">
+                        <strong>${date}</strong><br>
+                        <strong>Q:</strong> ${shortQuery}<br>
+                        <strong>A:</strong> ${shortYaml}
+                        <div class="history-actions">
+                            <button class="load-chat-btn" onclick="loadResponseToChatFromData(this)">Load in Chat</button>
+                            <button class="apply-history-btn" onclick="applyHistoryChangesFromData(this)">Apply Changes</button>
+                            <button class="save-history-btn" onclick="saveHistoryChangesFromData(this)">Save Changes</button>
+                            <button class="rollback-history-btn" onclick="rollbackHistoryChanges()">Rollback</button>
+                        </div>
+                    </div>
+                `;
+            });
+
+            chatHistory.innerHTML = historyHTML;
+        } else {
+            chatHistory.innerHTML = '<div class="file-item">No history yet</div>';
+        }
+    }
+
+    // HTML escaping function
+    function escapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML.replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+    }
+
+    // Safe data extraction from attributes
+    function getConversationData(button) {
+        const historyItem = button.closest('.history-item');
+        const conversationId = historyItem.getAttribute('data-conversation-id');
+        const query = historyItem.getAttribute('data-query');
+        const yamlResponse = historyItem.getAttribute('data-yaml');
+
+        // Unescape HTML entities
+        const unescapedQuery = unescapeHtml(query);
+        const unescapedYaml = unescapeHtml(yamlResponse);
+
+        return {
+            conversationId: conversationId,
+            query: unescapedQuery,
+            yamlResponse: unescapedYaml
+        };
+    }
+
+    function unescapeHtml(text) {
+        if (!text) return '';
+        const div = document.createElement('div');
+        div.innerHTML = text;
+        return div.textContent;
+    }
+
+    // Updated handler functions
+    function loadResponseToChatFromData(button) {
+        const data = getConversationData(button);
+        loadResponseToChat(data.conversationId, data.query, data.yamlResponse);
+    }
+
+    function applyHistoryChangesFromData(button) {
+        const data = getConversationData(button);
+        applyHistoryChanges(data.conversationId, data.yamlResponse);
+    }
+
+    function saveHistoryChangesFromData(button) {
+        const data = getConversationData(button);
+        saveHistoryChanges(data.conversationId, data.yamlResponse);
+    }
+
+    // Make the original functions more robust
+    function loadResponseToChat(conversationId, query, yamlResponse, modelUsed = null, providerUsed = null) {
+        try {
+            // Clear current chat
+            chatMessages.innerHTML = '<div class="message system-message">Loaded from history:</div>';
+
+            // Add the user query
+            if(query && query !== 'null' && query !== 'undefined') {
+                addMessage('user', query, false, conversationId);
+            }
+
+            // Add the assistant response
+            if(yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+                addMessage('assistant', yamlResponse, true, conversationId, modelUsed, providerUsed);
+                currentYamlResponse = yamlResponse;
+            } else {
+                addMessage('assistant', 'No YAML response available', false, conversationId);
+            }
+
+            selectedConversationId = conversationId;
+            chatMessages.scrollTop = chatMessages.scrollHeight;
+        } catch (error) {
+            console.error('Error loading chat from history:', error);
+            addMessage('system', 'Error loading conversation from history: ' + error.message);
+        }
+    }
+
+    function applyHistoryChanges(conversationId, yamlResponse) {
+        if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+            socket.emit('apply_changes', {
+                yaml_response: yamlResponse,
+                conversation_id: conversationId
+            });
+        } else {
+            alert('No valid YAML response found for this conversation');
+        }
+    }
+
+    function saveHistoryChanges(conversationId, yamlResponse) {
+        if (yamlResponse && yamlResponse !== 'No YAML response' && yamlResponse !== 'null' && yamlResponse !== 'undefined') {
+            socket.emit('save_changes', {
+                yaml_response: yamlResponse,
+                conversation_id: conversationId
+            });
+        } else {
+            alert('No valid YAML response found for this conversation');
+        }
+    }
+
+    function rollbackHistoryChanges() {
+        if (confirm('Are you sure you want to rollback all changes across all projects?')) {
+            socket.emit('rollback_changes');
+        }
+    }
+
+    // Socket event handlers
+    socket.on('connect', function() {
+        console.log('Connected to server');
+        currentSessionId = socket.id;
+        socket.emit('get_project_info');
+        socket.emit('get_all_conversations');
+
+        // Initialize provider selection
+        initializeProviderSelection();
+    });
+
+    // New event for model lists
+    socket.on('models_list', function(data) {
+        updateModelsDropdown(data.provider, data.models);
+    });
+
+    socket.on('models_error', function(data) {
+        console.error('Error loading models:', data.error);
+        modelSelect.innerHTML = `<option value="">Error loading models: ${data.error}</option>`;
+        modelSelect.disabled = false;
+    });
+
+    socket.on('project_info', function(data) {
+        updateProjectInfo(data);
+    });
+
+    socket.on('assistant_response', function(data) {
+        hideTypingIndicator();
+        currentYamlResponse = data.yaml_response;
+        selectedConversationId = null;
+        addMessage('assistant', data.yaml_response, true, null, data.model_used, data.provider_used);
+
+        // Refresh chat history
+        socket.emit('get_all_conversations');
+
+        // Re-enable input
+        sendButton.disabled = false;
+        messageInput.disabled = false;
+        modelSelect.disabled = false;
+        providerRadios.forEach(radio => radio.disabled = false);
+        apiKeyInput.disabled = false;
+        refreshModelsBtn.disabled = false;
+        messageInput.focus();
+    });
+
+    socket.on('application_results', function(data) {
+        addMessage('system', '✅ Changes applied successfully across projects!');
+        socket.emit('get_all_conversations');
+    });
+
+    socket.on('save_results', function(data) {
+        addMessage('system', `✅ Changes saved with git! Commit: "${data.commit_message}"`);
+    });
+
+    socket.on('rollback_results', function(data) {
+        addMessage('system', '✅ Rollback completed across all projects!');
+        socket.emit('get_project_info');
+    });
+
+    socket.on('all_conversations', function(data) {
+        updateChatHistory(data);
+    });
+
+    socket.on('error', function(data) {
+        hideTypingIndicator();
+        addMessage('system', `❌ Error: ${data.error}`);
+
+        // Re-enable input
+        sendButton.disabled = false;
+        messageInput.disabled = false;
+        modelSelect.disabled = false;
+        providerRadios.forEach(radio => radio.disabled = false);
+        apiKeyInput.disabled = false;
+        refreshModelsBtn.disabled = false;
+        messageInput.focus();
+    });
+</script>
+</body>
+</html>
