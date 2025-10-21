@@ -11,42 +11,51 @@
             margin: 0 auto;
             padding: 20px;
         }
-        .api-key-section {
-            background: #f8f9fa;
-            padding: 20px;
-            border-radius: 8px;
-            margin-bottom: 20px;
-            border-left: 4px solid #007bff;
-        }
-        .provider-card {
+        .profile-section {
             background: white;
-            padding: 15px;
-            margin: 10px 0;
-            border-radius: 6px;
-            border: 1px solid #dee2e6;
+            border-radius: 8px;
+            padding: 20px;
+            margin: 20px 0;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.1);
         }
-        .api-key-input {
-            width: 100%;
+        .api-key-form {
+            display: flex;
+            gap: 10px;
+            margin: 15px 0;
+        }
+        .api-key-form input {
+            flex: 1;
             padding: 10px;
             border: 1px solid #ddd;
             border-radius: 4px;
+        }
+        .btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            cursor: pointer;
+            text-decoration: none;
+            display: inline-block;
+        }
+        .btn-primary { background: #007bff; color: white; }
+        .btn-success { background: #28a745; color: white; }
+        .api-key-list {
+            margin-top: 15px;
+        }
+        .api-key-item {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
+            margin: 5px 0;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .conversation-item {
+            padding: 15px;
+            border: 1px solid #ddd;
+            border-radius: 4px;
             margin: 10px 0;
-        }
-        .btn-save {
-            background: #28a745;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
-        }
-        .btn-delete {
-            background: #dc3545;
-            color: white;
-            border: none;
-            padding: 8px 16px;
-            border-radius: 4px;
-            cursor: pointer;
         }
         .status-message {
             padding: 10px;
@@ -55,263 +64,219 @@
         }
         .success { background: #d4edda; color: #155724; }
         .error { background: #f8d7da; color: #721c24; }
-        .nav-tabs {
-            display: flex;
-            margin-bottom: 20px;
-            border-bottom: 1px solid #dee2e6;
-        }
-        .nav-tab {
-            padding: 10px 20px;
-            cursor: pointer;
-            border: 1px solid transparent;
-            border-bottom: none;
-            margin-right: 5px;
-            border-radius: 4px 4px 0 0;
-        }
-        .nav-tab.active {
-            background: white;
-            border-color: #dee2e6 #dee2e6 white;
-        }
-        .tab-content {
-            display: none;
-        }
-        .tab-content.active {
-            display: block;
-        }
-        .saved-key {
-            background: #e9ecef;
-            padding: 8px;
-            border-radius: 4px;
-            margin: 5px 0;
-            font-family: monospace;
-        }
     </style>
 </head>
 <body>
 <div class="header">
     <h1>Multi-Project AI Assistant 🤖</h1>
-    <div class="subtitle">Profile & API Key Management</div>
+    <div class="subtitle">User Profile</div>
+    <div style="margin-top: 10px;">
+        <a href="/" class="btn btn-primary">Back to Chat</a>
+        <a href="/projects" class="btn btn-primary">My Projects</a>
+        <button onclick="logout()" class="btn btn-danger" style="margin-left: 10px;">Logout</button>
+    </div>
 </div>
 
 <div class="profile-container">
-    <div class="nav-tabs">
-        <div class="nav-tab active" onclick="showTab('api-keys')">API Keys</div>
-        <div class="nav-tab" onclick="showTab('conversations')">Conversation History</div>
-        <div class="nav-tab" onclick="showTab('settings')">Settings</div>
-    </div>
-
-    <!-- API Keys Tab -->
-    <div id="api-keys" class="tab-content active">
-        <div class="api-key-section">
-            <h3>🔑 API Key Management</h3>
-            <p>Store your API keys securely. They will be used automatically when you select the corresponding provider.</p>
-
-            <!-- Ollama Cloud -->
-            <div class="provider-card">
-                <h4>🌐 Ollama Cloud</h4>
-                <p>For using Ollama cloud models</p>
-                <input type="password" id="ollama-api-key" class="api-key-input" placeholder="Enter Ollama Cloud API Key">
-                <button class="btn-save" onclick="saveApiKey('ollama')">Save Ollama Key</button>
-                <button class="btn-delete" onclick="deleteApiKey('ollama')">Delete</button>
-                <div id="ollama-status"></div>
-            </div>
-
-            <!-- OpenAI -->
-            <div class="provider-card">
-                <h4>🤖 OpenAI</h4>
-                <p>For GPT-4, GPT-3.5, and other OpenAI models</p>
-                <input type="password" id="openai-api-key" class="api-key-input" placeholder="Enter OpenAI API Key">
-                <button class="btn-save" onclick="saveApiKey('openai')">Save OpenAI Key</button>
-                <button class="btn-delete" onclick="deleteApiKey('openai')">Delete</button>
-                <div id="openai-status"></div>
-            </div>
-
-            <!-- OpenRouter -->
-            <div class="provider-card">
-                <h4>🔄 OpenRouter</h4>
-                <p>For accessing multiple AI models through OpenRouter</p>
-                <input type="password" id="openrouter-api-key" class="api-key-input" placeholder="Enter OpenRouter API Key">
-                <button class="btn-save" onclick="saveApiKey('openrouter')">Save OpenRouter Key</button>
-                <button class="btn-delete" onclick="deleteApiKey('openrouter')">Delete</button>
-                <div id="openrouter-status"></div>
-            </div>
-
-            <div id="saved-keys">
-                <h4>Saved Keys</h4>
-                <div id="keys-list"></div>
-            </div>
+    <!-- User Information -->
+    <div class="profile-section">
+        <h3>User Information</h3>
+        <div id="user-info">
+            <p><strong>Username:</strong> <span id="user-username">Loading...</span></p>
+            <p><strong>Email:</strong> <span id="user-email">Loading...</span></p>
+            <p><strong>Member since:</strong> <span id="user-created">Loading...</span></p>
         </div>
     </div>
 
-    <!-- Conversation History Tab -->
-    <div id="conversations" class="tab-content">
-        <h3>💬 Conversation History</h3>
-        <div id="conversation-history">
-            <div class="file-item">Loading conversation history...</div>
-        </div>
-    </div>
+    <!-- API Keys Management -->
+    <div class="profile-section">
+        <h3>API Keys Management</h3>
+        <p>Add your API keys to use different AI providers:</p>
 
-    <!-- Settings Tab -->
-    <div id="settings" class="tab-content">
-        <h3>⚙️ Settings</h3>
-        <div class="provider-card">
-            <h4>Default Provider</h4>
-            <select id="default-provider">
-                <option value="ollama">Ollama</option>
+        <div class="api-key-form">
+            <select id="api-provider">
                 <option value="openai">OpenAI</option>
                 <option value="openrouter">OpenRouter</option>
+                <option value="anthropic">Anthropic</option>
             </select>
-            <button class="btn-save" onclick="saveDefaultProvider()">Save Default</button>
+            <input type="password" id="api-key" placeholder="Enter API key">
+            <button class="btn btn-success" onclick="saveApiKey()">Save API Key</button>
         </div>
 
-        <div class="provider-card">
-            <h4>Session Management</h4>
-            <button class="btn-delete" onclick="clearAllConversations()">Clear All Conversations</button>
+        <div id="api-key-status"></div>
+
+        <div class="api-key-list">
+            <h4>Your API Keys</h4>
+            <div id="api-keys-list">Loading...</div>
         </div>
     </div>
-</div>
 
-<div style="text-align: center; margin-top: 30px;">
-    <a href="/" style="color: #007bff; text-decoration: none;">← Back to Chat</a>
+    <!-- Conversation History -->
+    <div class="profile-section">
+        <h3>Conversation History</h3>
+        <div id="conversations-list">
+            Loading conversations...
+        </div>
+    </div>
 </div>
 
 <script>
-    let currentUserId = 'default_user'; // You can make this dynamic based on authentication
-
-    function showTab(tabName) {
-        // Hide all tabs
-        document.querySelectorAll('.tab-content').forEach(tab => {
-            tab.classList.remove('active');
-        });
-        document.querySelectorAll('.nav-tab').forEach(tab => {
-            tab.classList.remove('active');
-        });
-
-        // Show selected tab
-        document.getElementById(tabName).classList.add('active');
-        event.target.classList.add('active');
-
-        // Load tab-specific data
-        if (tabName === 'conversations') {
-            loadConversationHistory();
-        } else if (tabName === 'api-keys') {
-            loadSavedKeys();
-        }
-    }
-
-    function saveApiKey(provider) {
-        const apiKey = document.getElementById(`${provider}-api-key`).value.trim();
-        const statusElement = document.getElementById(`${provider}-status`);
-
-        if (!apiKey) {
-            showStatus(statusElement, 'Please enter an API key', 'error');
+    function loadUserProfile() {
+        const token = localStorage.getItem('token');
+        if (!token) {
+            window.location.href = '/auth';
             return;
         }
 
+        // Load user info
+        fetch('/api/get_user_profile', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                if (data.user) {
+                    document.getElementById('user-username').textContent = data.user.username;
+                    document.getElementById('user-email').textContent = data.user.email;
+                    document.getElementById('user-created').textContent = new Date(data.user.created_at).toLocaleDateString();
+                }
+            })
+            .catch(error => {
+                console.error('Error loading user profile:', error);
+            });
+
+        // Load API keys
+        loadApiKeys();
+
+        // Load conversations
+        loadConversations();
+    }
+
+    function loadApiKeys() {
+        const token = localStorage.getItem('token');
+        fetch('/api/get_user_api_keys', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                const keysList = document.getElementById('api-keys-list');
+                if (data.keys && data.keys.length > 0) {
+                    keysList.innerHTML = data.keys.map(key => `
+                        <div class="api-key-item">
+                            <div>
+                                <strong>${key.provider.toUpperCase()}</strong>
+                                <div style="font-size: 12px; color: #666;">
+                                    Added: ${new Date(key.created_at).toLocaleDateString()}
+                                </div>
+                            </div>
+                            <div>
+                                <button class="btn btn-danger" onclick="deleteApiKey('${key.provider}')">Delete</button>
+                            </div>
+                        </div>
+                    `).join('');
+                } else {
+                    keysList.innerHTML = '<p>No API keys saved yet.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading API keys:', error);
+            });
+    }
+
+    function loadConversations() {
+        const token = localStorage.getItem('token');
+        fetch('/api/get_all_conversations', {
+            headers: {
+                'Authorization': `Bearer ${token}`
+            }
+        })
+            .then(response => response.json())
+            .then(data => {
+                const conversationsList = document.getElementById('conversations-list');
+                if (data.conversations && data.conversations.length > 0) {
+                    conversationsList.innerHTML = data.conversations.map(conv => `
+                        <div class="conversation-item">
+                            <div style="display: flex; justify-content: between; margin-bottom: 10px;">
+                                <strong>${new Date(conv.created_at).toLocaleString()}</strong>
+                                <span style="background: #007bff; color: white; padding: 2px 8px; border-radius: 12px; font-size: 12px;">
+                                    ${conv.provider} - ${conv.model_used}
+                                </span>
+                            </div>
+                            <div><strong>Query:</strong> ${conv.query}</div>
+                            ${conv.yaml_response ? `<div style="margin-top: 5px;"><strong>Response:</strong> ${conv.yaml_response.substring(0, 200)}...</div>` : ''}
+                        </div>
+                    `).join('');
+                } else {
+                    conversationsList.innerHTML = '<p>No conversations yet.</p>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading conversations:', error);
+            });
+    }
+
+    function saveApiKey() {
+        const provider = document.getElementById('api-provider').value;
+        const apiKey = document.getElementById('api-key').value;
+        const statusDiv = document.getElementById('api-key-status');
+
+        if (!apiKey) {
+            showStatus(statusDiv, 'Please enter an API key', 'error');
+            return;
+        }
+
+        const token = localStorage.getItem('token');
         fetch('/api/save_api_key', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                user_id: currentUserId,
-                provider: provider,
-                api_key: apiKey
-            })
+            body: JSON.stringify({ provider, api_key: apiKey })
         })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showStatus(statusElement, 'API key saved successfully!', 'success');
-                    document.getElementById(`${provider}-api-key`).value = '';
-                    loadSavedKeys();
+                    showStatus(statusDiv, 'API key saved successfully!', 'success');
+                    document.getElementById('api-key').value = '';
+                    loadApiKeys();
                 } else {
-                    showStatus(statusElement, 'Error saving API key: ' + data.error, 'error');
+                    showStatus(statusDiv, data.error || 'Failed to save API key', 'error');
                 }
             })
             .catch(error => {
-                showStatus(statusElement, 'Error: ' + error, 'error');
+                showStatus(statusDiv, 'Error: ' + error, 'error');
             });
     }
 
     function deleteApiKey(provider) {
-        if (!confirm('Are you sure you want to delete this API key?')) {
+        if (!confirm(`Are you sure you want to delete the ${provider} API key?`)) {
             return;
         }
 
-        const statusElement = document.getElementById(`${provider}-status`);
-
+        const token = localStorage.getItem('token');
         fetch('/api/delete_api_key', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
             },
-            body: JSON.stringify({
-                user_id: currentUserId,
-                provider: provider
-            })
+            body: JSON.stringify({ provider })
         })
             .then(response => response.json())
             .then(data => {
                 if (data.success) {
-                    showStatus(statusElement, 'API key deleted successfully!', 'success');
-                    loadSavedKeys();
+                    loadApiKeys();
                 } else {
-                    showStatus(statusElement, 'Error deleting API key: ' + data.error, 'error');
+                    alert('Error deleting API key: ' + data.error);
                 }
             })
             .catch(error => {
-                showStatus(statusElement, 'Error: ' + error, 'error');
+                alert('Error: ' + error);
             });
-    }
-
-    function loadSavedKeys() {
-        fetch(`/api/get_user_api_keys?user_id=${currentUserId}`)
-            .then(response => response.json())
-            .then(data => {
-                const keysList = document.getElementById('keys-list');
-                if (data.keys && data.keys.length > 0) {
-                    keysList.innerHTML = data.keys.map(key => `
-                        <div class="saved-key">
-                            <strong>${key.provider.toUpperCase()}</strong>
-                            - Saved: ${new Date(key.created_at).toLocaleDateString()}
-                        </div>
-                    `).join('');
-                } else {
-                    keysList.innerHTML = '<div class="file-item">No API keys saved yet</div>';
-                }
-            })
-            .catch(error => {
-                console.error('Error loading saved keys:', error);
-            });
-    }
-
-    function loadConversationHistory() {
-        fetch('/api/get_all_conversations?limit=100')
-            .then(response => response.json())
-            .then(data => {
-                const historyContainer = document.getElementById('conversation-history');
-                if (data.conversations && data.conversations.length > 0) {
-                    historyContainer.innerHTML = data.conversations.map(conv => `
-                        <div class="history-item">
-                            <strong>${new Date(conv.created_at).toLocaleString()}</strong><br>
-                            <strong>Provider:</strong> ${conv.provider} |
-                            <strong>Model:</strong> ${conv.model_used}<br>
-                            <strong>Q:</strong> ${conv.query.substring(0, 100)}${conv.query.length > 100 ? '...' : ''}<br>
-                            <button onclick="viewConversation(${conv.id})">View Details</button>
-                        </div>
-                    `).join('');
-                } else {
-                    historyContainer.innerHTML = '<div class="file-item">No conversations found</div>';
-                }
-            })
-            .catch(error => {
-                console.error('Error loading conversation history:', error);
-            });
-    }
-
-    function viewConversation(conversationId) {
-        window.location.href = `/?conversation=${conversationId}`;
     }
 
     function showStatus(element, message, type) {
@@ -321,41 +286,15 @@
         }, 5000);
     }
 
-    function saveDefaultProvider() {
-        const provider = document.getElementById('default-provider').value;
-        localStorage.setItem('defaultProvider', provider);
-        showStatus(document.createElement('div'), 'Default provider saved!', 'success');
+    function logout() {
+        localStorage.removeItem('token');
+        localStorage.removeItem('user');
+        window.location.href = '/auth';
     }
 
-    function clearAllConversations() {
-        if (!confirm('Are you sure you want to clear ALL conversation history? This cannot be undone.')) {
-            return;
-        }
-
-        fetch('/api/clear_conversations', {
-            method: 'POST'
-        })
-            .then(response => response.json())
-            .then(data => {
-                if (data.success) {
-                    loadConversationHistory();
-                    alert('All conversations cleared successfully!');
-                } else {
-                    alert('Error clearing conversations: ' + data.error);
-                }
-            })
-            .catch(error => {
-                alert('Error: ' + error);
-            });
-    }
-
-    // Load saved keys when page loads
+    // Add missing API endpoint
     document.addEventListener('DOMContentLoaded', function() {
-        loadSavedKeys();
-
-        // Load default provider from localStorage
-        const defaultProvider = localStorage.getItem('defaultProvider') || 'ollama';
-        document.getElementById('default-provider').value = defaultProvider;
+        loadUserProfile();
     });
 </script>
 </body>

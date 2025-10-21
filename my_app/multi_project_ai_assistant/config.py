@@ -27,6 +27,12 @@ class Config:
     MAX_FILE_SIZE = 50000  # 50KB max per file
     MAX_CONTEXT_SIZE = 100000  # ~100KB total context
 
+    # User Projects Configuration
+    BASE_PROJECT_DIR = os.getenv('BASE_PROJECT_DIR', '/media/shivareddy/E/oct-2025/15_evg/oct/user_projects')
+
+    # JWT Configuration
+    JWT_SECRET_KEY = os.getenv('JWT_SECRET_KEY', 'your-jwt-secret-key-change-in-production')
+
     # Available Models
     AVAILABLE_MODELS = [
         "qwen3-vl:235b-cloud",
@@ -54,3 +60,9 @@ class Config:
             'port': cls.REDIS_PORT,
             'db': cls.REDIS_DB
         }
+
+    @classmethod
+    def get_base_project_dir(cls) -> str:
+        """Get base project directory and create if it doesn't exist"""
+        os.makedirs(cls.BASE_PROJECT_DIR, exist_ok=True)
+        return cls.BASE_PROJECT_DIR

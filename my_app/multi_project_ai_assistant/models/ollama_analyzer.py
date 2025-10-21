@@ -5,98 +5,232 @@ import re
 import requests
 from typing import List, Dict, Any
 from openai import OpenAI
+from datetime import datetime
 
 class OllamaAnalyzer:
     def __init__(self, base_url: str = "http://localhost:11434"):
         self.base_url = base_url
-        self.available_models = [
-            "qwen3-vl:235b-cloud",
-            "nomic-embed-text:latest",
-            "gpt-oss:120b-cloud",
-            "qwen3-coder:480b-cloud",
-            "deepseek-v3.1:671b-cloud",
-            "mahonzhan/all-MiniLM-L6-v2:latest",
-            "gpt-oss:20b-cloud",
-            "kimi-k2:1t-cloud",
-            "embeddinggemma:300m",
-            "llama3:8b",
-            "llama3.2:3b",
-            "deepcoder:14b",
-            "devstral:24b",
-            "deepseek-r1-14b-finetuned:latest",
-            "my-react-assistant:latest",
-            "qllama/bge-reranker-large:latest",
-            "pedrovillalobos/mxbai-embed-large-no-gpu:latest",
-            "phi:2.7b",
-            "turingdance/gte-large-zh:latest",
-            "bge-large:335m",
-            "gemma:7b",
-            "mxbai-embed-large:latest",
-            "deepseek-r1:14b",
-            "gpt-oss:20b",
-            "codellama:latest",
-            "codellama:7b",
-            "qwen3:latest",
-            "codegeex4:latest",
-            "mistral:7b-instruct",
-            "codellama:7b-instruct",
-            "deepseek-coder:6.7b-instruct",
-            "qwen2.5-coder:7b",
-            "dolphin3:latest",
-            "all-minilm:latest",
-            "codegemma:latest"
-        ]
-        self.model = "qwen3-coder:480b-cloud"
+        self.model = "codellama:latest"
         self.project_roots = []
+        self.provider = "ollama"  # Default provider
+
+    def set_provider(self, provider: str):
+        """Set the AI provider (ollama, openai, openrouter)"""
+        self.provider = provider
+        print(f"✅ Provider set to: {provider}")
 
     def set_model(self, model_name: str):
         """Set the model to use for analysis"""
-        if model_name in self.available_models:
-            self.model = model_name
-            print(f"✅ Model set to: {model_name}")
-        else:
-            print(f"⚠️  Model {model_name} not in available models. Using default: {self.model}")
+        self.model = model_name
+        print(f"✅ Model set to: {model_name}")
 
-    def get_available_models(self) -> List[str]:
-        """Get list of available models"""
-        return self.available_models
-
-    # NEW METHOD: Add the missing analyze_with_prompt method
-    def analyze_with_prompt(self, prompt: str, model: str = None) -> str:
-        """Analyze prompt using Ollama/OpenRouter and return response"""
+    def analyze_with_prompt(self, prompt: str, model: str = None, provider: str = None) -> str:
+        """Analyze prompt using selected provider and model"""
+        print("hehehehehehehehheheh")
         if model is None:
             model = self.model
+        if provider is None:
+            provider = self.provider
+
+        print(f"🤖 Using provider: {provider}, model: {model}")
 
         try:
-            # Use OpenRouter for analysis (same as your auto_generate_file_changes method)
-            client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key="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",
-            )
-
-            extra_headers = {
-                "HTTP-Referer": "http://localhost:5000",
-                "X-Title": "Multi-Project AI Assistant"
-            }
-
-            completion = client.chat.completions.create(
-                extra_headers=extra_headers,
-                model="openai/gpt-oss-20b:free",  # Use the model parameter
-                messages=[
-                    {"role": "user", "content": prompt}
-                ]
-            )
-
-            raw_response = completion.choices[0].message.content
-            print("✅ Response received from OpenRouter")
-
-            # Clean the response
-            cleaned_response = self.clean_yaml_response(raw_response)
-            return cleaned_response
+            if provider == "ollama":
+                return self._analyze_with_ollama(prompt, model)
+            elif provider == "openai":
+                return self._analyze_with_openai(prompt, model)
+            elif provider == "openrouter":
+                return self._analyze_with_openrouter(prompt, model)
+            else:
+                raise Exception(f"Unsupported provider: {provider}")
 
         except Exception as e:
             print(f"❌ Error in analyze_with_prompt: {e}")
+            # Store error in database
+            self._store_error_in_db(str(e), provider, model, prompt)
             raise Exception(f"Analysis failed: {str(e)}")
+
+    def _analyze_with_ollama(self, prompt: str, model: str) -> str:
+        """Analyze using local Ollama instance"""
+        print("===========full prprprprpprprprpr")
+        print(prompt)
+        prompt="hi"
+        try:
+            # Make the request to Ollama
+            payload = {
+                "model": model,
+                "prompt": prompt,
+                "stream": False
+            }
+
+            response = requests.post(f"{self.base_url}/api/generate", json=payload, timeout=100000)
+
+
+            print("rrrrrrrrrrrrrrrrrrrrrrrrrrrr")
+            print(response)
+            if response.status_code == 200:
+                result = response.json()
+                raw_response = result.get('response', '')
+                print("✅ Response received from Ollama")
+                return self.clean_yaml_response(raw_response)
+            else:
+                error_msg = f"Ollama API error: {response.status_code} - {response.text}"
+                print(f"❌ {error_msg}")
+                raise Exception(error_msg)
+
+        except Exception as e:
+            print(f"❌ Error calling Ollama: {e}")
+            raise Exception(f"Ollama service unavailable: {str(e)}")
+
+    def _analyze_with_openai(self, prompt: str, model: str) -> str:
+        """Analyze using OpenAI API"""
+        try:
+            # Get API key from environment or use a default
+            api_key = os.getenv('OPENAI_API_KEY', 'your-openai-api-key-here')
+
+            client = OpenAI(
+                base_url="https://api.openai.com/v1",
+                api_key=api_key,
+            )
+
+            completion = client.chat.completions.create(
+                model=model,
+                messages=[
+                    {"role": "user", "content": prompt}
+                ],
+                timeout=60
+            )
+
+            raw_response = completion.choices[0].message.content
+            print("✅ Response received from OpenAI")
+            return self.clean_yaml_response(raw_response)
+
+        except Exception as e:
+            print(f"❌ Error calling OpenAI: {e}")
+            raise Exception(f"OpenAI API error: {str(e)}")
+
+    def _analyze_with_openrouter(self, prompt: str, model: str) -> str:
+            """Analyze using OpenRouter API with enhanced error handling"""
+            try:
+                client = OpenAI(
+                    base_url="https://openrouter.ai/api/v1",
+                    api_key="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",
+                )
+
+                extra_headers = {
+                    "HTTP-Referer": "http://localhost:5000",
+                    "X-Title": "Multi-Project AI Assistant"
+                }
+
+                # Map common model names to OpenRouter models
+                model_mapping = {
+                    "llama3.1:latest": "meta-llama/llama-3.1-8b-instruct:free",
+                    "codellama:latest": "codellama/codellama-34b-instruct:free",
+                    "qwen3-coder:480b-cloud": "qwen/qwen-3-coder-32b-instruct:free",
+                    "gpt-oss-20b:free": "openai/gpt-oss-20b:free"
+                }
+
+                openrouter_model = model_mapping.get(model, "openai/gpt-oss-20b:free")
+                print(f"🔀 Using OpenRouter model: {openrouter_model}")
+
+                print("beoererererrerere=========oprnrnrnnrnrnr--riririiriririri")
+                print(prompt)
+                completion = client.chat.completions.create(
+                    extra_headers=extra_headers,
+                    model=openrouter_model,
+                    messages=[
+                        {"role": "user", "content": prompt}
+                    ],
+                    timeout=60
+                )
+
+                raw_response = completion.choices[0].message.content
+                print("✅ Response received from OpenRouter")
+                return self.clean_yaml_response(raw_response)
+
+            except Exception as e:
+                error_message = f"OpenRouter API error: {str(e)}"
+                print(f"❌ Error calling OpenRouter: {error_message}")
+
+                # Store error in database
+                self._store_error_in_db(error_message, "openrouter", model, prompt)
+
+                # Return error in YAML format
+                return self._format_error_yaml(error_message, "openrouter", model)
+
+    def _store_error_in_db(self, error_message: str, provider: str, model: str, prompt: str):
+        """Store error information in database"""
+        try:
+            from models.database import PostgresDB
+            # You'll need to pass db_config to OllamaAnalyzer or access it differently
+            db_config = {
+                'host': 'localhost',
+                'database': 'ai_assistant',
+                'user': 'postgres',
+                'password': 'postgres'
+            }
+
+            db = PostgresDB(db_config)
+
+            error_data = {
+                "error_message": error_message,
+                "provider": provider,
+                "model": model,
+                "prompt_preview": prompt[:500] if prompt else "",  # Store first 500 chars
+                "user_id": 1,  # You'll need to get this from context
+                "session_id": "system",  # You'll need to get this from context
+                "created_at": datetime.now()
+            }
+
+            # Store error in database
+            query = """
+            INSERT INTO error_logs
+            (error_message, provider, model, prompt_preview, user_id, session_id, created_at)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
+            """
+
+            db.execute_query(query, (
+                error_data["error_message"],
+                error_data["provider"],
+                error_data["model"],
+                error_data["prompt_preview"],
+                error_data["user_id"],
+                error_data["session_id"],
+                error_data["created_at"]
+            ))
+
+            print(f"📝 Error stored in database: {error_message[:100]}...")
+
+        except Exception as e:
+            print(f"❌ Failed to store error in database: {e}")
+
+    def _format_error_yaml(self, error_message: str, provider: str, model: str) -> str:
+        """Format error response as YAML"""
+        error_data = {
+            'error': {
+                'message': error_message,
+                'provider': provider,
+                'model': model,
+                'timestamp': datetime.now().isoformat(),
+                'type': 'api_error'
+            },
+            'projects': [],
+            'install_commands': [
+                'echo "Error occurred during analysis. Please try again or use a different provider."'
+            ],
+            'packages': {
+                'rails_gems': [],
+                'react_dependencies': [],
+                'react_devDependencies': []
+            }
+        }
+
+        return yaml.dump(error_data, default_flow_style=False, indent=2)
+
+    def _get_current_timestamp(self):
+        """Get current timestamp for error logging"""
+        from datetime import datetime
+        return datetime.now().isoformat()
 
     def clean_yaml_response(self, yaml_response: str) -> str:
         """
@@ -530,14 +664,14 @@ YOUR OUTPUT MUST START WITH 'projects:' AND END WITH THE LAST FILE CONTENT.
 
         return "\n".join(prompt_parts)
 
-    def auto_generate_file_changes(self, user_query: str, project_roots: List[str]):
+    def auto_generate_file_changes(self, user_query: str, project_roots: List[str], model: str = None, provider: str = None):
         """
         Main entry point that automatically detects whether to use
         existing components or new components method
         """
         print(f"🎯 Auto-generating file changes for: '{user_query}'")
         print(f"📁 Projects: {project_roots}")
-        print(f"🤖 Using model: {self.model}")
+        print(f"🤖 Using provider: {provider or self.provider}, model: {model or self.model}")
 
         self.project_roots = project_roots
 
@@ -561,45 +695,30 @@ YOUR OUTPUT MUST START WITH 'projects:' AND END WITH THE LAST FILE CONTENT.
             print(f"❌ JSON parsing error: {e}, using fallback")
             system_prompt = user_query
 
-        print("=====before send to final prompt ===========")
-        print(system_prompt)
-        print("====enennenenenenne")
-        print("Sending structured prompt to Ollama...")
+        print("===== Sending prompt to AI provider ===========")
+        print(f"Provider: {provider or self.provider}")
+        print(f"Model: {model or self.model}")
+        print("=============================================")
+        print(user_query)
 
         try:
-            client = OpenAI(
-                base_url="https://openrouter.ai/api/v1",
-                api_key="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",
-            )
-
-            # Optional headers for rankings on OpenRouter.ai
-            extra_headers = {
-                "HTTP-Referer": "<YOUR_SITE_URL>",
-                "X-Title": "<YOUR_SITE_NAME>"
-            }
-
-            completion = client.chat.completions.create(
-                extra_headers=extra_headers,
-                model="openai/gpt-oss-20b:free",
-                messages=[
-                    {"role": "user", "content": system_prompt}
-                ]
-            )
-
-            raw_response = completion.choices[0].message.content
-            print("✅ Raw response received from OpenRouter")
+            # Use the dynamic provider selection
+            raw_response = self.analyze_with_prompt(user_query, model, provider)
 
             # Attempt YAML cleaning, fallback to raw text if parsing fails
             try:
                 cleaned_response = self.clean_yaml_response(raw_response)
                 print("✅ Cleaned YAML response ready")
-            except Exception:
+            except Exception as e:
+                print(f"⚠️  YAML cleaning failed, using raw response: {e}")
                 cleaned_response = raw_response
 
             return cleaned_response
 
         except Exception as e:
-            return f"Error: {e}"
+            error_msg = f"Error in auto_generate_file_changes: {e}"
+            print(f"❌ {error_msg}")
+            return error_msg
 
     # Legacy method for backward compatibility
     def analyze_and_generate_changes(self, prompt: str, project_context: str, project_roots: List[str], intent: Dict[str, bool]) -> str:

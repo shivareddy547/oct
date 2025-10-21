@@ -8,7 +8,7 @@ from services.web_ui import MultiProjectAIChatbotWebUI
 
 def main():
     parser = argparse.ArgumentParser(description='Multi-Project AI Assistant')
-    parser.add_argument('project_paths', nargs='+', help='Paths to project directories (React and/or Rails)')
+    parser.add_argument('project_paths', nargs='*', help='Paths to project directories (React and/or Rails) - Optional for web interface')
     parser.add_argument('--redis-host', default=Config.REDIS_HOST, help='Redis host')
     parser.add_argument('--redis-port', default=Config.REDIS_PORT, type=int, help='Redis port')
     parser.add_argument('--ollama-url', default=Config.OLLAMA_BASE_URL, help='Ollama server URL')
@@ -24,13 +24,11 @@ def main():
     parser.add_argument('--db-user', default=Config.DB_USER, help='PostgreSQL username')
     parser.add_argument('--db-password', default=Config.DB_PASSWORD, help='PostgreSQL password')
 
-    args = parser.parse_args()
+    # User authentication and project management
+    parser.add_argument('--base-project-dir', default=Config.BASE_PROJECT_DIR, help='Base directory for user projects')
+    parser.add_argument('--jwt-secret', default=Config.JWT_SECRET_KEY, help='JWT secret key')
 
-    # Validate project paths
-    for project_path in args.project_paths:
-        if not os.path.exists(project_path):
-            print(f"❌ Error: Project path '{project_path}' does not exist!")
-            return
+    args = parser.parse_args()
 
     # Configuration
     db_config = {
@@ -47,7 +45,19 @@ def main():
         'db': Config.REDIS_DB
     }
 
+    # For CLI mode, require project paths
     if args.cli:
+        if not args.project_paths:
+            print("❌ Error: Project paths are required for CLI mode!")
+            parser.print_help()
+            return
+
+        # Validate project paths for CLI
+        for project_path in args.project_paths:
+            if not os.path.exists(project_path):
+                print(f"❌ Error: Project path '{project_path}' does not exist!")
+                return
+
         # CLI interface
         assistant = MultiProjectAIAssistant(args.project_paths, redis_config, db_config)
         assistant.ollama.base_url = args.ollama_url
@@ -149,9 +159,12 @@ def main():
             except Exception as e:
                 print(f"❌ Error: {e}")
     else:
-        # Use the web interface
+        # Web interface - project paths are optional as they'll be loaded per user
+        # For backward compatibility, if project paths are provided, use them
+        # Otherwise, the web UI will handle user-specific project loading
+
         chatbot = MultiProjectAIChatbotWebUI(
-            args.project_paths,
+            args.project_paths,  # Can be empty for user-specific projects
             redis_config,
             db_config,
             args.ollama_url,
