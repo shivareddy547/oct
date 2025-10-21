@@ -24,7 +24,7 @@ class Config:
     PORT = int(os.getenv('PORT', 5000))
 
     # Application Settings
-    MAX_FILE_SIZE = 50000  # 50KB max per file
+    MAX_FILE_SIZE = 'NONE'  # 50KB max per file
     MAX_CONTEXT_SIZE = 100000  # ~100KB total context
 
     # User Projects Configuration

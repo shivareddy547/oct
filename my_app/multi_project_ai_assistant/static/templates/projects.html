@@ -44,6 +44,62 @@
             text-decoration: none;
             display: inline-block;
         }
+        /* Add to your existing CSS in the style section */
+        .terminal-line {
+            margin: 2px 0;
+            font-family: 'Courier New', monospace;
+            font-size: 12px;
+            line-height: 1.4;
+        }
+
+        .terminal-success {
+            color: #00ff00;
+        }
+
+        .terminal-error {
+            color: #ff4444;
+        }
+
+        .terminal-warning {
+            color: #ffaa00;
+        }
+
+        .terminal-info {
+            color: #4488ff;
+        }
+
+        .progress-bar {
+            background: #2d3748;
+            border-radius: 10px;
+            overflow: hidden;
+            height: 20px;
+            margin: 10px 0;
+        }
+
+        .progress-fill {
+            height: 100%;
+            background: linear-gradient(90deg, #00ff00, #00cc00);
+            transition: width 0.5s ease;
+            border-radius: 10px;
+        }
+
+        /* Terminal scrollbar styling */
+        #terminal-output::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #terminal-output::-webkit-scrollbar-track {
+            background: #2d3748;
+        }
+
+        #terminal-output::-webkit-scrollbar-thumb {
+            background: #4a5568;
+            border-radius: 4px;
+        }
+
+        #terminal-output::-webkit-scrollbar-thumb:hover {
+            background: #718096;
+        }
         .btn-primary { background: #007bff; color: white; }
         .btn-success { background: #28a745; color: white; }
         .btn-danger { background: #dc3545; color: white; }
@@ -142,6 +198,15 @@
         .success { background: #d4edda; color: #155724; }
         .error { background: #f8d7da; color: #721c24; }
         .info { background: #d1ecf1; color: #0c5460; }
+        /* Add to your existing CSS */
+        .project-type.git {
+            background: #6f42c1;
+            color: white;
+            padding: 4px 8px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
@@ -217,6 +282,90 @@
 
             <div id="upload-status" class="upload-status"></div>
         </div>
+        <!-- Update your projects.html with better Git UI -->
+        <div class="git-section" style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #ddd;">
+            <h4>Clone from Git Repository</h4>
+            <p>Import your project directly from any Git repository (GitHub, GitLab, Bitbucket, etc.)</p>
+
+            <div style="background: #f8f9fa; padding: 20px; border-radius: 8px;">
+                <div class="form-group">
+                    <label><strong>Git Repository URL *</strong></label>
+                    <input type="text" id="git-url" placeholder="https://github.com/username/repository.git or git@github.com:username/repository.git"
+                           style="width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px;">
+                    <small style="color: #666;">Support: GitHub, GitLab, Bitbucket, Azure DevOps, and any Git repository</small>
+                </div>
+
+                <div class="form-group">
+                    <label>Project Name</label>
+                    <input type="text" id="git-project-name" placeholder="Auto-detected from repository name"
+                           style="width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ddd; border-radius: 4px;">
+                </div>
+
+                <div style="background: #e9ecef; padding: 15px; border-radius: 5px; margin: 15px 0;">
+                    <h6 style="margin-top: 0;">🔐 Private Repository Authentication (Optional)</h6>
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="git-username" placeholder="Git username"
+                               style="width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px;">
+                    </div>
+                    <div class="form-group">
+                        <label>Personal Access Token</label>
+                        <input type="password" id="git-token" placeholder="Git token or password"
+                               style="width: 100%; padding: 10px; margin: 5px 0; border: 1px solid #ccc; border-radius: 4px;">
+                        <small style="color: #666;">
+                            For GitHub: <a href="https://github.com/settings/tokens" target="_blank">Create Personal Access Token</a> |
+                            For GitLab: <a href="https://gitlab.com/-/profile/personal_access_tokens" target="_blank">Create Access Token</a>
+                        </small>
+                    </div>
+                </div>
+
+                <button class="btn btn-success" onclick="cloneFromGit()" style="padding: 10px 20px;">
+                    <span id="clone-btn-text">🚀 Clone Repository</span>
+                </button>
+
+                <div id="git-clone-status" style="margin-top: 10px;"></div>
+            </div>
+
+            <!-- Progress section -->
+            <!-- Replace the git-clone-progress section in your projects.html -->
+            <div id="git-clone-progress" style="display: none; margin-top: 20px;">
+                <h5>🔄 Cloning Repository...</h5>
+                <div class="progress-bar">
+                    <div class="progress-fill" id="git-progress-fill" style="width: 0%"></div>
+                </div>
+                <div id="git-clone-status-text" style="margin: 10px 0; font-weight: bold;">Starting clone...</div>
+
+                <!-- Terminal-style output -->
+                <div style="background: #1e1e1e; color: #00ff00; padding: 15px; border-radius: 5px; font-family: 'Courier New', monospace; font-size: 12px; height: 200px; overflow-y: auto; margin-top: 10px;">
+                    <div id="terminal-output">
+                        <div>> Ready to clone repository...</div>
+                    </div>
+                </div>
+
+                <!-- Stats section -->
+                <div id="clone-stats" style="display: none; margin-top: 10px; padding: 10px; background: #f8f9fa; border-radius: 5px;">
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>📁 Files:</span>
+                        <span id="file-count">0</span>
+                    </div>
+                    <div style="display: flex; justify-content: space-between;">
+                        <span>⏱️ Time:</span>
+                        <span id="clone-time">0s</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Examples section -->
+            <div style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 5px;">
+                <h6>📚 Examples:</h6>
+                <div style="font-family: monospace; font-size: 12px;">
+                    <div>• <a href="javascript:void(0)" onclick="setGitExample('https://github.com/username/my-react-app.git')">https://github.com/username/my-react-app.git</a></div>
+                    <div>• <a href="javascript:void(0)" onclick="setGitExample('git@github.com:username/my-rails-app.git')">git@github.com:username/my-rails-app.git</a></div>
+                    <div>• <a href="javascript:void(0)" onclick="setGitExample('https://gitlab.com/username/my-node-app.git')">https://gitlab.com/username/my-node-app.git</a></div>
+                    <div>• <a href="javascript:void(0)" onclick="setGitExample('https://bitbucket.org/username/my-python-app.git')">https://bitbucket.org/username/my-python-app.git</a></div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <h3>My Projects</h3>
@@ -229,6 +378,202 @@
     let selectedProjectType = null;
     let selectedFiles = [];
     let currentUpload = null;
+
+    // Enhanced Git clone function
+    // Replace your cloneFromGit function with this version
+    async function cloneFromGit() {
+        const gitUrl = document.getElementById('git-url').value.trim();
+        const projectName = document.getElementById('git-project-name').value.trim();
+        const gitUsername = document.getElementById('git-username').value.trim();
+        const gitToken = document.getElementById('git-token').value.trim();
+        const status = document.getElementById('git-clone-status');
+        const progressDiv = document.getElementById('git-clone-progress');
+        const cloneBtn = document.getElementById('clone-btn-text');
+        const terminalOutput = document.getElementById('terminal-output');
+        const cloneStats = document.getElementById('clone-stats');
+
+        if (!gitUrl) {
+            showGitStatus('Please enter a Git repository URL', 'error');
+            return;
+        }
+
+        const token = localStorage.getItem('token');
+        if (!token) {
+            showGitStatus('Please login first', 'error');
+            return;
+        }
+
+        // Reset and show UI
+        progressDiv.style.display = 'block';
+        cloneStats.style.display = 'none';
+        document.getElementById('git-progress-fill').style.width = '0%';
+        document.getElementById('git-clone-status-text').textContent = '🚀 Starting Git clone...';
+        terminalOutput.innerHTML = '<div class="terminal-line">> 🚀 Initializing Git clone process...</div>';
+        cloneBtn.textContent = 'Cloning...';
+
+        let redisProjectId = null;
+        let progressInterval = null;
+        let cloneCompleted = false;
+        let startTime = Date.now();
+
+        // Update timer
+        const updateTimer = () => {
+            const elapsed = Math.floor((Date.now() - startTime) / 1000);
+            document.getElementById('clone-time').textContent = `${elapsed}s`;
+        };
+
+        let timerInterval = setInterval(updateTimer, 1000);
+
+        try {
+            const payload = {
+                git_url: gitUrl,
+                project_name: projectName || undefined
+            };
+
+            if (gitUsername) payload.git_username = gitUsername;
+            if (gitToken) payload.git_token = gitToken;
+
+            const response = await fetch('/api/clone_project', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(payload)
+            });
+
+            if (!response.ok) {
+                throw new Error(`Clone failed to start: ${response.status}`);
+            }
+
+            const result = await response.json();
+
+            if (!result.success) {
+                throw new Error(result.error || 'Clone failed to start');
+            }
+
+            redisProjectId = result.redis_project_id;
+
+            // Start Git-specific progress polling
+            progressInterval = setInterval(async () => {
+                try {
+                    const progressResponse = await fetch(`/api/git_progress/${redisProjectId}`, {
+                        headers: {
+                            'Authorization': `Bearer ${token}`
+                        }
+                    });
+
+                    if (progressResponse.ok) {
+                        const progressData = await progressResponse.json();
+                        if (progressData.success && progressData.progress) {
+                            const progress = progressData.progress;
+
+                            // Update progress bar
+                            document.getElementById('git-progress-fill').style.width = progress.percentage + '%';
+                            document.getElementById('git-clone-status-text').textContent = progress.message;
+
+                            // Update terminal output
+                            if (progress.terminal_output) {
+                                terminalOutput.innerHTML = progress.terminal_output
+                                    .map(line => `<div class="terminal-line">${line}</div>`)
+                                    .join('');
+                                terminalOutput.scrollTop = terminalOutput.scrollHeight;
+                            }
+
+                            // Update file count when available
+                            if (progress.total_files > 0) {
+                                document.getElementById('file-count').textContent = progress.total_files;
+                                cloneStats.style.display = 'block';
+                            }
+
+                            // Check if completed
+                            if (progress.status === 'completed') {
+                                cloneCompleted = true;
+                                clearInterval(progressInterval);
+                                clearInterval(timerInterval);
+
+                                showGitStatus(
+                                    `✅ Project "${result.project_name}" cloned successfully with ${progress.total_files} files!`,
+                                    'success'
+                                );
+                                loadUserProjects();
+
+                                setTimeout(() => {
+                                    progressDiv.style.display = 'none';
+                                    resetGitForm();
+                                    cloneBtn.textContent = '🚀 Clone Repository';
+                                }, 5000);
+                            }
+
+                            // Check if error
+                            if (progress.status === 'error') {
+                                clearInterval(progressInterval);
+                                clearInterval(timerInterval);
+                                cloneBtn.textContent = '🚀 Clone Repository';
+                                cloneStats.style.display = 'block';
+                                showGitStatus('❌ ' + progress.message, 'error');
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.error('Error fetching Git progress:', error);
+                }
+            }, 1500); // Poll every 1.5 seconds
+
+            // Set timeout for 30 minutes for large repositories
+            setTimeout(() => {
+                if (!cloneCompleted && progressInterval) {
+                    clearInterval(progressInterval);
+                    clearInterval(timerInterval);
+                    showGitStatus('⏰ Clone timeout after 30 minutes - Very large repository', 'error');
+                    terminalOutput.innerHTML += '<div class="terminal-line" style="color: orange;">> ⏰ Operation timed out after 30 minutes</div>';
+                    progressDiv.style.display = 'none';
+                    cloneBtn.textContent = '🚀 Clone Repository';
+                }
+            }, 1800000); // 30 minutes
+
+        } catch (error) {
+            console.error('Git clone error:', error);
+            if (progressInterval) clearInterval(progressInterval);
+            if (timerInterval) clearInterval(timerInterval);
+            showGitStatus('❌ Clone failed: ' + error.message, 'error');
+            progressDiv.style.display = 'none';
+            cloneBtn.textContent = '🚀 Clone Repository';
+        }
+    }
+
+    // Helper functions
+    function setGitExample(url) {
+        document.getElementById('git-url').value = url;
+        // Auto-fill project name from URL
+        const projectName = url.split('/').pop().replace('.git', '');
+        document.getElementById('git-project-name').value = projectName;
+    }
+
+    function resetGitForm() {
+        document.getElementById('git-url').value = '';
+        document.getElementById('git-project-name').value = '';
+        document.getElementById('git-username').value = '';
+        document.getElementById('git-token').value = '';
+    }
+
+    function showGitStatus(message, type) {
+        const status = document.getElementById('git-clone-status');
+        status.innerHTML = `<div class="status-message ${type}">${message}</div>`;
+    }
+
+    // Auto-detect project name from Git URL
+    document.getElementById('git-url').addEventListener('blur', function() {
+        const url = this.value.trim();
+        const projectNameInput = document.getElementById('git-project-name');
+
+        if (url && !projectNameInput.value) {
+            let projectName = url.split('/').pop().replace('.git', '');
+            if (projectName) {
+                projectNameInput.value = projectName;
+            }
+        }
+    });
 
     // Initialize drag and drop
     document.addEventListener('DOMContentLoaded', function() {
@@ -387,161 +732,49 @@
         }
     }
 
-    async function uploadProject() {
-        const projectName = document.getElementById('upload-project-name').value.trim();
-        const status = document.getElementById('upload-status');
-        const uploadPreview = document.getElementById('upload-preview');
-        const uploadProgress = document.getElementById('upload-progress');
-
-        if (!projectName) {
-            showUploadStatus('Please enter a project name', 'error');
-            return;
-        }
-
-        if (selectedFiles.length === 0) {
-            showUploadStatus('Please select a project directory', 'error');
-            return;
-        }
-
+    // In your loadUserProjects function, make sure it shows Git projects too
+    function loadUserProjects() {
         const token = localStorage.getItem('token');
-        if (!token) {
-            showUploadStatus('Please login first', 'error');
-            return;
-        }
+        if (!token) return;
 
-        // Check project size (1GB limit)
-        const sizeCheck = checkProjectSize(selectedFiles);
-        if (sizeCheck.tooLarge) {
-            showUploadStatus(sizeCheck.message, 'error');
-            return;
-        }
-
-        // Detect project type
-        const projectType = detectProjectType(selectedFiles);
-
-        // Show progress
-        uploadPreview.style.display = 'none';
-        uploadProgress.style.display = 'block';
-
-        let redisProjectId = null;
-        let progressInterval = null;
-        let uploadCompleted = false;
-
-        try {
-            // Create FormData
-            const formData = new FormData();
-            formData.append('project_name', projectName);
-            formData.append('project_type', projectType);
-
-            // Add ALL files
-            for (let file of selectedFiles) {
-                formData.append('files', file, file.webkitRelativePath || file.name);
+        fetch('/api/get_user_projects', {
+            headers: {
+                'Authorization': `Bearer ${token}`
             }
-
-            // Show initial progress
-            document.getElementById('progress-fill').style.width = '0%';
-            document.getElementById('upload-status-text').textContent = 'Starting upload...';
-
-            // Start upload - this should return immediately
-            const response = await fetch('/api/upload_project', {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`
-                },
-                body: formData
+        })
+            .then(response => response.json())
+            .then(data => {
+                const projectsList = document.getElementById('projects-list');
+                if (data.projects && data.projects.length > 0) {
+                    projectsList.innerHTML = data.projects.map(project => `
+                    <div class="project-card">
+                        <div class="project-header">
+                            <div>
+                                <h4>${project.project_name}</h4>
+                                <span class="project-type">${project.project_type.toUpperCase()}</span>
+                                ${project.git_url ? '<span class="project-type" style="background: #6f42c1; margin-left: 5px;">GIT</span>' : ''}
+                            </div>
+                            <div class="project-actions">
+                                <button class="btn btn-primary" onclick="loadProject(${project.id})">Load</button>
+                                <button class="btn btn-success" onclick="startProject(${project.id})">Start</button>
+                                <button class="btn btn-danger" onclick="deleteProject(${project.id})">Delete</button>
+                            </div>
+                        </div>
+                        <div class="project-details">
+                            <p><strong>Path:</strong> ${project.project_path}</p>
+                            ${project.git_url ? `<p><strong>Git:</strong> ${project.git_url}</p>` : ''}
+                            <p><strong>Port:</strong> ${project.port_number}</p>
+                            <p><strong>Created:</strong> ${new Date(project.created_at).toLocaleString()}</p>
+                        </div>
+                    </div>
+                `).join('');
+                } else {
+                    projectsList.innerHTML = '<div class="file-item">No projects found. Create your first project above.</div>';
+                }
+            })
+            .catch(error => {
+                console.error('Error loading projects:', error);
             });
-
-            if (!response.ok) {
-                throw new Error(`Upload failed to start: ${response.status}`);
-            }
-
-            const result = await response.json();
-
-            if (!result.success) {
-                throw new Error(result.error || 'Upload failed to start');
-            }
-
-            // Get Redis project ID for progress tracking
-            redisProjectId = result.redis_project_id;
-
-            // Start progress polling
-            progressInterval = setInterval(async () => {
-                try {
-                    const progressResponse = await fetch(`/api/upload_progress/${redisProjectId}`, {
-                        headers: {
-                            'Authorization': `Bearer ${token}`
-                        }
-                    });
-
-                    if (progressResponse.ok) {
-                        const progressData = await progressResponse.json();
-                        if (progressData.success && progressData.progress) {
-                            const progress = progressData.progress;
-
-                            // Update progress bar
-                            document.getElementById('progress-fill').style.width = progress.percentage + '%';
-
-                            // Update status text
-                            let statusText = progress.message || 'Processing...';
-                            if (progress.status === 'uploading' && progress.total_files) {
-                                statusText += ` (${progress.processed_files}/${progress.total_files} files)`;
-                                if (progress.current_file) {
-                                    statusText += ` - Current: ${progress.current_file}`;
-                                }
-                            }
-
-                            document.getElementById('upload-status-text').textContent = statusText;
-
-                            // Check if completed
-                            if (progress.status === 'completed') {
-                                uploadCompleted = true;
-                                clearInterval(progressInterval);
-
-                                document.getElementById('progress-fill').style.width = '100%';
-                                document.getElementById('upload-status-text').textContent =
-                                    `Upload complete! ${progress.total_files} files processed.`;
-
-                                showUploadStatus(
-                                    `Project "${projectName}" uploaded successfully with ${progress.total_files} files!`,
-                                    'success'
-                                );
-                                loadUserProjects();
-
-                                setTimeout(() => {
-                                    cancelUpload();
-                                    uploadProgress.style.display = 'none';
-                                }, 3000);
-                            }
-
-                            // Check if error
-                            if (progress.status === 'error') {
-                                clearInterval(progressInterval);
-                                throw new Error(progress.message);
-                            }
-                        }
-                    }
-                } catch (error) {
-                    console.error('Error fetching progress:', error);
-                }
-            }, 1000); // Poll every second
-
-            // Set timeout for 10 minutes
-            setTimeout(() => {
-                if (!uploadCompleted && progressInterval) {
-                    clearInterval(progressInterval);
-                    showUploadStatus('Upload timeout after 10 minutes', 'error');
-                    uploadProgress.style.display = 'none';
-                    uploadPreview.style.display = 'block';
-                }
-            }, 600000);
-
-        } catch (error) {
-            console.error('Upload error:', error);
-            if (progressInterval) clearInterval(progressInterval);
-            showUploadStatus('Upload failed: ' + error.message, 'error');
-            uploadProgress.style.display = 'none';
-            uploadPreview.style.display = 'block';
-        }
     }
 
     function checkProjectSize(files) {

@@ -35,5 +35,5 @@ def debug_users():
     except Exception as e:
         print(f"❌ Error debugging users: {e}")
 
-if __name__ == "__main__":
-    debug_users()
+# if __name__ == "__main__":
+#     debug_users()

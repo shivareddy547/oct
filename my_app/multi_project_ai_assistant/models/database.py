@@ -43,6 +43,7 @@ class PostgresDB:
                            project_type VARCHAR(20) NOT NULL,
                            project_path VARCHAR(500) NOT NULL,
                            redis_project_id VARCHAR(255),  -- NEW: Store Redis project ID
+                           git_url VARCHAR(500),
                            port_number INTEGER UNIQUE,
                            created_at TIMESTAMP DEFAULT NOW(),
                            updated_at TIMESTAMP DEFAULT NOW(),
@@ -288,9 +289,13 @@ class PostgresDB:
 
     # Project Management Methods
     # Update the create_user_project method to accept redis_project_id
-    def create_user_project(self, user_id: int, project_name: str, project_type: str, project_path: str, redis_project_id: str = None) -> Optional[int]:
-        """Create a new project for user with Redis project ID support"""
-        # Find available port (starting from 3000)
+    # In your database.py, update the create_user_project method:
+
+    def create_user_project(self, user_id: int, project_name: str, project_type: str,
+                           project_path: str, redis_project_id: str = None,
+                           git_url: str = None) -> Optional[int]:
+        """Create a new project for user - WORKS FOR BOTH UPLOAD AND CLONE"""
+        # Find available port - SAME FOR BOTH
         base_port = 3000
         max_port = 4000
 
@@ -308,18 +313,24 @@ class PostgresDB:
             if not port_number:
                 raise Exception("No available ports")
 
-            # Updated insert query with redis_project_id
+            # Insert project - SAME STRUCTURE FOR BOTH
             insert_query = """
-            INSERT INTO user_projects (user_id, project_name, project_type, project_path, redis_project_id, port_number)
-            VALUES (%s, %s, %s, %s, %s, %s)
+            INSERT INTO user_projects (user_id, project_name, project_type, project_path, redis_project_id, git_url, port_number)
+            VALUES (%s, %s, %s, %s, %s, %s, %s)
             RETURNING id
             """
             result = self.execute_query(
                 insert_query,
-                (user_id, project_name, project_type, project_path, redis_project_id, port_number),
+                (user_id, project_name, project_type, project_path, redis_project_id, git_url, port_number),
                 fetch=True
             )
-            return result[0]['id'] if result else None
+
+            if result:
+                project_id = result[0]['id']
+                print(f"✅ Project created: ID={project_id}, Path={project_path}, Type={project_type}")
+                return project_id
+            return None
+
         except Exception as e:
             print(f"❌ Error creating user project: {e}")
             return None

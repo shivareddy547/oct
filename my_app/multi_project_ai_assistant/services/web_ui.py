@@ -4,25 +4,26 @@ import os
 import subprocess
 import shutil
 from typing import List, Dict
-from flask import Flask, request, jsonify, copy_current_request_context, make_response
+from flask import Flask, request, jsonify, copy_current_request_context, make_response, redirect, url_for
 from flask_socketio import SocketIO, emit
 import requests
 import json
 from datetime import datetime
+import re
 
 from services.ai_assistant import MultiProjectAIAssistant
-
 from flask import Flask, render_template, send_from_directory
 from flask_socketio import SocketIO
 import os
-from openai import OpenAI  # Add this import if not already present
+from openai import OpenAI
+from models.upload_manager import UploadManager
 
 
 class MultiProjectAIChatbotWebUI:
     def __init__(self, project_paths: List[str], redis_config: Dict, db_config: Dict,
                  ollama_url: str = 'http://localhost:11434', host: str = '0.0.0.0', port: int = 5000):
         self.base_project_dir = "/media/shivareddy/E/oct-2025/15_evg/oct/user_projects"
-        self.assistant = None  # Will be initialized per user
+        self.assistant = None
         self.redis_config = redis_config
         self.db_config = db_config
         self.ollama_url = ollama_url
@@ -38,27 +39,23 @@ class MultiProjectAIChatbotWebUI:
         template_dir = os.path.join(static_dir, 'templates')
 
         self.app = Flask(__name__,
-                            static_folder=static_dir,
-                            template_folder=template_dir)
+                        static_folder=static_dir,
+                        template_folder=template_dir)
 
-        # REMOVE or INCREASE upload limits - set to None for no limit
+        # REMOVE upload limits
         self.app.config['MAX_CONTENT_LENGTH'] = None  # Remove file size limit
-        self.app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
-
         self.app.config['SECRET_KEY'] = 'multi-project-ai-assistant-secret-key'
-
-        # Increase other limits
-        self.app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
-        self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
         self.socketio = SocketIO(self.app, cors_allowed_origins="*", async_mode='threading')
 
+        # === INITIALIZE UPLOAD MANAGER ===
+        self.upload_manager = UploadManager(self)
+        print("✅ UploadManager initialized")
+
         # Store user sessions
-        self.user_sessions = {}  # {session_id: {user_id, current_project, current_yaml}}
+        self.user_sessions = {}
 
         self.setup_routes()
-
-    # Add these methods to your MultiProjectAIChatbotWebUI class
 
     def get_ollama_models(self):
         """Get available models from Ollama"""
@@ -122,8 +119,6 @@ class MultiProjectAIChatbotWebUI:
             print(f"❌ Error fetching OpenRouter models: {e}")
             return []
 
-
-
     def get_anthropic_models(self, api_key):
         """Get available models from Anthropic"""
         try:
@@ -142,6 +137,7 @@ class MultiProjectAIChatbotWebUI:
         except Exception as e:
             print(f"❌ Error fetching Anthropic models: {e}")
             return []
+
     def get_user_assistant(self, user_id: int, project_paths: List[str]):
         """Get or create AI assistant for user"""
         if not project_paths:
@@ -210,14 +206,7 @@ class MultiProjectAIChatbotWebUI:
     def setup_routes(self):
         """Setup Flask routes and SocketIO events"""
         import os
-
-        import os
         from werkzeug.exceptions import RequestEntityTooLarge
-
-        # === ADD THIS AT THE BEGINNING OF setup_routes ===
-        @self.app.errorhandler(RequestEntityTooLarge)
-        def handle_file_too_large(e):
-            return jsonify({'success': False, 'error': 'File too large. Please try uploading smaller files or split your project.'}), 413
 
         @self.app.before_request
         def disable_content_length_check():
@@ -225,7 +214,7 @@ class MultiProjectAIChatbotWebUI:
             if request.endpoint == 'api_upload_project':
                 # Disable the content length check for file uploads
                 pass
-        # === END OF ADDED CODE ===
+
         # Helper to get user from token
         def get_current_user():
             token = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -235,138 +224,69 @@ class MultiProjectAIChatbotWebUI:
             if not token:
                 return None
 
-            from models.database import PostgresDB
-            db = PostgresDB(self.db_config)
-            user_id = db.verify_token(token)
-            if user_id:
-                return db.get_user_by_id(user_id)
-            return None
-
-        # ---------------------------
-        # Page Routes
-        # ---------------------------
-
-        @self.app.route('/')
-        def index():
-            # Check authentication via multiple methods
-            token = request.cookies.get('token') or request.args.get('token')
-
-            print(f"🔐 Checking authentication for / route")
-            print(f"🔐 Token from cookie: {bool(request.cookies.get('token'))}")
-            print(f"🔐 Token from args: {bool(request.args.get('token'))}")
-
-            if token:
+            try:
                 from models.database import PostgresDB
                 db = PostgresDB(self.db_config)
                 user_id = db.verify_token(token)
                 if user_id:
-                    user = db.get_user_by_id(user_id)
-                    if user:
-                        print(f"✅ User {user['username']} authenticated via token")
-                        # Return the main app template for authenticated users
-                        return render_template('index.html')
+                    return db.get_user_by_id(user_id)
+                return None
+            except Exception as e:
+                print(f"Error getting current user: {e}")
+                return None
 
-            # Not authenticated - show auth template
-            print("🔐 User not authenticated, showing auth page")
-            return render_template('auth.html')
+        # ---------------------------
+        # Page Routes - FIXED REDIRECTS
+        # ---------------------------
 
-        @self.app.route('/api/check_auth')
-        def api_check_auth():
-            """Check if user is authenticated"""
+        @self.app.route('/')
+        def index():
+            """Main route - fixed to prevent redirect loops"""
             user = get_current_user()
             if user:
-                serialized_user = {
-                    'id': user['id'],
-                    'username': user['username'],
-                    'email': user['email']
-                }
-
-                # Add created_at only if it exists
-                if 'created_at' in user:
-                    serialized_user['created_at'] = user['created_at'].isoformat() if user['created_at'] else None
-
-                return jsonify({
-                    'authenticated': True,
-                    'user': serialized_user
-                })
-            return jsonify({'authenticated': False})
-
-        # Add this with your other route definitions
-        @self.app.errorhandler(413)
-        def too_large(e):
-            return jsonify({
-                'success': False,
-                'error': 'File too large. Maximum upload size is 500MB. Please upload smaller projects or split your project.'
-            }), 413
-        @self.socketio.on('authenticate')
-        def handle_authenticate(data):
-            session_id = request.sid
-            token = data.get('token')
-
-            from models.database import PostgresDB
-            db = PostgresDB(self.db_config)
-            user_id = db.verify_token(token)
-
-            if user_id:
-                user = db.get_user_by_id(user_id)
-                if user:
-                    self.user_sessions[session_id]['user_id'] = user_id
-
-                    # Load user's projects
-                    projects = db.get_user_projects(user_id)
-                    if projects:
-                        project_paths = [p['project_path'] for p in projects]
-                        self.user_sessions[session_id]['current_project'] = projects[0]
-
-                        # Initialize assistant for user
-                        assistant = self.get_user_assistant(user_id, project_paths)
-                        if assistant:
-                            self.assistant = assistant
-
-                            # Send project info
-                            project_info = assistant.get_project_info()
-                            emit('project_info', project_info, room=session_id)
-
-                            # Send conversation history
-                            conversations = db.get_all_conversations(user_id, 50)
-                            serialized_conversations = [self.serialize_conversation(conv) for conv in conversations]
-                            emit('all_conversations', {'conversations': serialized_conversations}, room=session_id)
-
-                    # Safely serialize user data
-                    serialized_user = {
-                        'id': user['id'],
-                        'username': user['username'],
-                        'email': user['email']
-                    }
-
-                    # Add created_at only if it exists
-                    if 'created_at' in user:
-                        serialized_user['created_at'] = user['created_at'].isoformat() if user['created_at'] else None
-
-                    emit('authentication_success', {'user': serialized_user}, room=session_id)
-                    print(f"✅ Socket authentication successful for user: {user['username']}")
-                    return
-
-            emit('authentication_failed', {'error': 'Invalid token'}, room=session_id)
-            print("❌ Socket authentication failed")
+                print(f"✅ User {user['username']} authenticated, showing main app")
+                return render_template('index.html')
+            else:
+                print("🔐 User not authenticated, showing auth page")
+                return render_template('auth.html')
 
         @self.app.route('/auth')
         def auth():
+            """Auth page - redirect to main if already authenticated"""
+            user = get_current_user()
+            if user:
+                print(f"✅ User already authenticated, redirecting to main app")
+                return redirect('/')
             return render_template('auth.html')
 
         @self.app.route('/projects')
         def projects():
+            """Projects page - redirect to auth if not authenticated"""
             user = get_current_user()
             if not user:
-                return render_template('auth.html')
+                print("🔐 User not authenticated, redirecting to auth")
+                return redirect('/auth')
             return render_template('projects.html')
 
         @self.app.route('/profile')
         def profile():
+            """Profile page - redirect to auth if not authenticated"""
             user = get_current_user()
             if not user:
-                return render_template('auth.html')
+                print("🔐 User not authenticated, redirecting to auth")
+                return redirect('/auth')
             return render_template('profile.html')
+
+        # Debug route to check authentication status
+        @self.app.route('/debug/auth')
+        def debug_auth():
+            user = get_current_user()
+            token = request.cookies.get('token')
+            return jsonify({
+                'has_user': bool(user),
+                'has_token': bool(token),
+                'user_agent': request.headers.get('User-Agent')
+            })
 
         # ---------------------------
         # API Routes for Authentication
@@ -468,6 +388,27 @@ class MultiProjectAIChatbotWebUI:
             response.set_cookie('token', '', expires=0)
             return response
 
+        @self.app.route('/api/check_auth')
+        def api_check_auth():
+            """Check if user is authenticated"""
+            user = get_current_user()
+            if user:
+                serialized_user = {
+                    'id': user['id'],
+                    'username': user['username'],
+                    'email': user['email']
+                }
+
+                # Add created_at only if it exists
+                if 'created_at' in user:
+                    serialized_user['created_at'] = user['created_at'].isoformat() if user['created_at'] else None
+
+                return jsonify({
+                    'authenticated': True,
+                    'user': serialized_user
+                })
+            return jsonify({'authenticated': False})
+
         @self.app.route('/api/forgot_password', methods=['POST'])
         def api_forgot_password():
             # Implementation for forgot password
@@ -481,6 +422,181 @@ class MultiProjectAIChatbotWebUI:
         # ---------------------------
         # API Routes for Project Management
         # ---------------------------
+
+        @self.app.route('/api/clone_project', methods=['POST'])
+        def api_clone_project():
+            user = get_current_user()
+            if not user:
+                return jsonify({'success': False, 'error': 'Authentication required'})
+
+            from models.database import PostgresDB
+            import subprocess
+            import shutil
+            import os
+            import re
+            from datetime import datetime
+
+            db = PostgresDB(self.db_config)
+
+            try:
+                data = request.get_json()
+                git_url = data.get('git_url')
+                project_name = data.get('project_name')
+                project_type = data.get('project_type', 'auto')
+                git_username = data.get('git_username', '')
+                git_token = data.get('git_token', '')
+
+                if not git_url:
+                    return jsonify({'success': False, 'error': 'Git URL is required'})
+
+                # Check if Git is available
+                try:
+                    result = subprocess.run(['git', '--version'], capture_output=True, text=True)
+                    if result.returncode != 0:
+                        return jsonify({'success': False, 'error': 'Git is not installed or not available on the system'})
+                except Exception as e:
+                    return jsonify({'success': False, 'error': f'Git is not available: {str(e)}'})
+
+                # Validate Git URL format
+                if not (git_url.startswith('http') or git_url.startswith('git@')):
+                    return jsonify({'success': False, 'error': 'Invalid Git URL format. Use http://, https://, or git@'})
+
+                # Extract project name if not provided
+                if not project_name:
+                    if git_url.endswith('.git'):
+                        project_name = git_url.split('/')[-1].replace('.git', '')
+                    else:
+                        project_name = git_url.split('/')[-1]
+                    if not project_name:
+                        project_name = f"project_{int(datetime.now().timestamp())}"
+
+                # Clean name
+                project_name = re.sub(r'[^\w\-_.]', '_', project_name)
+
+                # Build directories
+                user_dir = os.path.join(self.base_project_dir, str(user['id']))
+                os.makedirs(user_dir, exist_ok=True)
+                project_dir = os.path.join(user_dir, project_name)
+
+                # --- Check and handle existing project record ---
+                existing_project = db.execute_query(
+                    "SELECT id FROM user_projects WHERE user_id = %s AND project_name = %s",
+                    (user['id'], project_name),
+                    fetch=True
+                )
+                if existing_project:
+                    print(f"⚠️ Project '{project_name}' already exists — removing old record and folder.")
+                    db.execute_query(
+                        "DELETE FROM user_projects WHERE user_id = %s AND project_name = %s",
+                        (user['id'], project_name)
+                    )
+                    if os.path.exists(project_dir):
+                        try:
+                            shutil.rmtree(project_dir)
+                            print(f"🧹 Removed old project folder: {project_dir}")
+                        except Exception as e:
+                            print(f"⚠️ Failed to remove old folder: {e}")
+
+                # Ensure directory clean
+                if os.path.exists(project_dir):
+                    shutil.rmtree(project_dir)
+                os.makedirs(project_dir, exist_ok=True)
+
+                # Generate unique Redis project ID
+                redis_project_id = f"user_{user['id']}_{project_name}_{int(datetime.now().timestamp())}"
+
+                print(f"🔍 DEBUG: Starting Git clone task...")
+
+                # Start background Git clone process
+                task_id = self.upload_manager.start_git_clone_task(
+                    user['id'], project_name, git_url, project_dir, redis_project_id, git_username, git_token
+                )
+
+                return jsonify({
+                    'success': True,
+                    'redis_project_id': redis_project_id,
+                    'message': 'Git clone started in background',
+                    'task_id': task_id,
+                    'project_name': project_name,
+                    'project_path': project_dir
+                })
+
+            except Exception as e:
+                print(f"❌ Error starting git clone: {e}")
+                return jsonify({'success': False, 'error': f'Git clone failed: {str(e)}'})
+
+
+        @self.app.route('/api/git_progress/<redis_project_id>')
+        def api_git_progress(redis_project_id):
+            user = get_current_user()
+            if not user:
+                return jsonify({'success': False, 'error': 'Authentication required'})
+
+            try:
+                # Get progress from Git-specific storage
+                if hasattr(self, 'upload_manager'):
+                    progress = self.upload_manager.get_git_progress(user['id'], redis_project_id)
+                    if progress:
+                        return jsonify({'success': True, 'progress': progress})
+
+                return jsonify({'success': True, 'progress': {
+                    'status': 'starting',
+                    'percentage': 0,
+                    'message': '🚀 Preparing Git clone...',
+                    'terminal_output': ['> Initializing Git clone process...']
+                }})
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+
+        @self.app.route('/api/delete_project', methods=['POST'])
+        def api_delete_project():
+            user = get_current_user()
+            if not user:
+                return jsonify({'success': False, 'error': 'Authentication required'})
+
+            from models.database import PostgresDB
+            db = PostgresDB(self.db_config)
+
+            try:
+                data = request.get_json()
+                project_id = data.get('project_id')
+
+                # Get project info first - WORKS FOR BOTH UPLOAD AND CLONE
+                project = db.get_project_by_id(project_id, user['id'])
+                if not project:
+                    return jsonify({'success': False, 'error': 'Project not found'})
+
+                # Get Redis project ID - WORKS FOR BOTH
+                redis_project_id = project.get('redis_project_id')
+
+                # Delete from Redis if we have an assistant and Redis project ID - WORKS FOR BOTH
+                if redis_project_id and self.assistant:
+                    self.assistant.redis_manager.delete_user_project(user['id'], redis_project_id)
+                    print(f"✅ Deleted project from Redis: {redis_project_id}")
+
+                # Delete from database - WORKS FOR BOTH
+                query = "DELETE FROM user_projects WHERE id = %s AND user_id = %s"
+                rows_affected = db.execute_query(query, (project_id, user['id']))
+
+                if rows_affected > 0:
+                    # Delete project directory - WORKS FOR BOTH
+                    project_path = project['project_path']
+                    if os.path.exists(project_path):
+                        shutil.rmtree(project_path)
+                        print(f"✅ Deleted project directory: {project_path}")
+                    return jsonify({'success': True})
+                else:
+                    return jsonify({'success': False, 'error': 'Failed to delete project'})
+
+            except Exception as e:
+                return jsonify({'success': False, 'error': str(e)})
+
+        @self.app.errorhandler(413)
+        def too_large(e):
+            return jsonify({
+                'success': False,
+                'error': 'File too large. Maximum upload size is 500MB. Please upload smaller projects or split your project.'
+            }), 413
 
         @self.app.route('/api/create_project', methods=['POST'])
         def api_create_project():
@@ -685,8 +801,6 @@ class MultiProjectAIChatbotWebUI:
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
 
-        # Add progress endpoint
-
         @self.app.route('/api/upload_progress/<redis_project_id>')
         def api_upload_progress(redis_project_id):
             user = get_current_user()
@@ -707,6 +821,7 @@ class MultiProjectAIChatbotWebUI:
                 }})
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
+
         @self.app.route('/api/upload_project', methods=['POST'])
         def api_upload_project():
             user = get_current_user()
@@ -815,9 +930,7 @@ class MultiProjectAIChatbotWebUI:
             emit('authentication_failed', {'error': 'Invalid token'}, room=session_id)
             print("❌ Socket authentication failed")
 
-        # In your socketio event handlers, update the send_message handler:
-
-        self.socketio.on('send_message')
+        @self.socketio.on('send_message')
         def handle_message(data):
             @copy_current_request_context
             def process_message():
@@ -1032,14 +1145,7 @@ class MultiProjectAIChatbotWebUI:
     def run(self):
         """Start the web server"""
         # Increase Werkzeug limits for file uploads
-        from werkzeug.middleware.dispatcher import DispatcherMiddleware
-        from werkzeug.wrappers import Response
 
-        # This removes the content length limit for the entire app
-        app = self.app
-        app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
-            '/': app.wsgi_app
-        })
 
         print(f"🚀 Starting Multi-Project AI Assistant Web UI...")
         print(f"🌐 Web interface: http://{self.host}:{self.port}")
