@@ -174,6 +174,15 @@ class MultiProjectRedisManager:
             return json.loads(progress_data)
         return None
 
+    def set_progress(self, redis_project_id: str, data: dict):
+        self.client.set(f"git_progress:{redis_project_id}", json.dumps(data), ex=3600)
+
+    def get_progress(self, redis_project_id: str):
+        data = self.client.get(f"git_progress:{redis_project_id}")
+        if data:
+            return json.loads(data)
+        return None
+
     def delete_user_project(self, user_id: int, project_id: str):
         """Delete all project data for a specific user and project"""
         if not self.redis_client:

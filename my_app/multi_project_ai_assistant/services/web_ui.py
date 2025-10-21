@@ -19,6 +19,21 @@ from openai import OpenAI
 from models.upload_manager import UploadManager
 
 
+from flask import Blueprint, request, jsonify
+from flask_jwt_extended import jwt_required, get_jwt_identity
+from datetime import datetime
+import os, subprocess, threading, time, uuid, json
+from models.redis_manager import MultiProjectRedisManager
+
+api = Blueprint('api_clone_project', __name__)
+
+redis_manager = MultiProjectRedisManager({
+    "host": "localhost",
+    "port": 6379,
+    "db": 0
+})
+
+
 class MultiProjectAIChatbotWebUI:
     def __init__(self, project_paths: List[str], redis_config: Dict, db_config: Dict,
                  ollama_url: str = 'http://localhost:11434', host: str = '0.0.0.0', port: int = 5000):
@@ -526,27 +541,35 @@ class MultiProjectAIChatbotWebUI:
                 return jsonify({'success': False, 'error': f'Git clone failed: {str(e)}'})
 
 
-        @self.app.route('/api/git_progress/<redis_project_id>')
-        def api_git_progress(redis_project_id):
-            user = get_current_user()
-            if not user:
-                return jsonify({'success': False, 'error': 'Authentication required'})
 
+        @self.app.route('/api/git_progress/<project_id>')
+        def api_git_progress(project_id):
+            """Get Git clone progress for a project - PUBLIC VERSION"""
             try:
-                # Get progress from Git-specific storage
-                if hasattr(self, 'upload_manager'):
-                    progress = self.upload_manager.get_git_progress(user['id'], redis_project_id)
-                    if progress:
-                        return jsonify({'success': True, 'progress': progress})
+                # Extract user_id from project_id format: user_1_my-blue-app_1761064983
+                user_id_match = re.match(r'user_(\d+)_', project_id)
+                if not user_id_match:
+                    return jsonify({
+                        'status': 'error',
+                        'percentage': 0,
+                        'message': 'Invalid project ID format',
+                        'terminal_output': ['Invalid project ID']
+                    })
 
-                return jsonify({'success': True, 'progress': {
-                    'status': 'starting',
-                    'percentage': 0,
-                    'message': '🚀 Preparing Git clone...',
-                    'terminal_output': ['> Initializing Git clone process...']
-                }})
+                user_id = int(user_id_match.group(1))
+                progress = self.upload_manager.get_git_progress(user_id, project_id)
+
+                return jsonify(progress)
+
             except Exception as e:
-                return jsonify({'success': False, 'error': str(e)})
+                print(f"❌ Error getting Git progress: {e}")
+                return jsonify({
+                    'status': 'error',
+                    'percentage': 0,
+                    'message': f'Error: {str(e)}',
+                    'terminal_output': [f'Error: {str(e)}']
+                })
+
 
         @self.app.route('/api/delete_project', methods=['POST'])
         def api_delete_project():

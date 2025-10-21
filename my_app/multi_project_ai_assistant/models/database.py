@@ -36,20 +36,20 @@ class PostgresDB:
 
             # Create user_projects table
             cursor.execute("""
-                       CREATE TABLE IF NOT EXISTS user_projects (
-                           id SERIAL PRIMARY KEY,
-                           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                           project_name VARCHAR(100) NOT NULL,
-                           project_type VARCHAR(20) NOT NULL,
-                           project_path VARCHAR(500) NOT NULL,
-                           redis_project_id VARCHAR(255),  -- NEW: Store Redis project ID
-                           git_url VARCHAR(500),
-                           port_number INTEGER UNIQUE,
-                           created_at TIMESTAMP DEFAULT NOW(),
-                           updated_at TIMESTAMP DEFAULT NOW(),
-                           UNIQUE(user_id, project_name)
-                       )
-                   """)
+                CREATE TABLE IF NOT EXISTS user_projects (
+                    id SERIAL PRIMARY KEY,
+                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                    project_name VARCHAR(100) NOT NULL,
+                    project_type VARCHAR(20) NOT NULL,
+                    project_path VARCHAR(500) NOT NULL,
+                    redis_project_id VARCHAR(255),
+                    git_url VARCHAR(500),
+                    port_number INTEGER UNIQUE,
+                    created_at TIMESTAMP DEFAULT NOW(),
+                    updated_at TIMESTAMP DEFAULT NOW(),
+                    UNIQUE(user_id, project_name)
+                )
+            """)
 
             # Create API keys table
             cursor.execute("""
@@ -90,11 +90,9 @@ class PostgresDB:
             conn.commit()
             cursor.close()
             conn.close()
-            print("✅ Database initialized successfully")
 
         except Exception as e:
-            print(f"❌ Error initializing database: {e}")
-            # Don't raise to allow application to continue
+            print(f"Error initializing database: {e}")
 
     def _get_connection(self):
         """Get database connection"""
@@ -107,31 +105,24 @@ class PostgresDB:
         )
 
     def execute_query(self, query: str, params: tuple = None, fetch: bool = False):
-        """Execute a query and optionally fetch results - FIXED VERSION"""
+        """Execute a query and optionally fetch results"""
         conn = None
         cursor = None
         try:
             conn = self._get_connection()
             cursor = conn.cursor(cursor_factory=psycopg2.extras.DictCursor)
 
-            print(f"📝 Executing query: {query[:100]}...")  # Log first 100 chars
-            print(f"📝 Params: {params}")
-
             cursor.execute(query, params or ())
 
             if fetch:
                 result = cursor.fetchall()
-                print(f"📝 Fetch result: {len(result)} rows")
-                conn.commit()  # Commit even for read operations to be safe
+                conn.commit()
                 return [dict(row) for row in result]
             else:
-                conn.commit()  # Explicit commit for write operations
-                affected = cursor.rowcount
-                print(f"📝 Query affected {affected} rows - COMMITTED")
-                return affected
+                conn.commit()
+                return cursor.rowcount
 
         except Exception as e:
-            print(f"❌ Database error: {e}")
             if conn:
                 conn.rollback()
             raise
@@ -140,12 +131,10 @@ class PostgresDB:
                 cursor.close()
             if conn:
                 conn.close()
-                print("📝 Database connection closed")
 
     # User Management Methods
     def hash_password(self, password: str) -> str:
-        """Hash a password for storing using a more secure method"""
-        # Add a pepper for extra security (in production, store this in environment variable)
+        """Hash a password for storing"""
         pepper = "multi-project-ai-pepper"
         return hashlib.sha256((password + pepper).encode()).hexdigest()
 
@@ -154,7 +143,7 @@ class PostgresDB:
         return self.hash_password(password) == password_hash
 
     def create_user(self, username: str, email: str, password: str) -> Optional[int]:
-        """Create a new user - FIXED VERSION"""
+        """Create a new user"""
         conn = None
         cursor = None
         try:
@@ -162,8 +151,6 @@ class PostgresDB:
             cursor = conn.cursor()
 
             password_hash = self.hash_password(password)
-            print(f"🔐 Creating user: {username}, email: {email}")
-            print(f"🔐 Password hash: {password_hash}")
 
             query = """
             INSERT INTO users (username, email, password_hash, created_at, updated_at)
@@ -176,25 +163,13 @@ class PostgresDB:
 
             if result:
                 user_id = result[0]
-                conn.commit()  # Explicit commit
-                print(f"✅ User created successfully with ID: {user_id} - COMMITTED")
-
-                # Verify the user was actually saved
-                cursor.execute("SELECT id FROM users WHERE id = %s", (user_id,))
-                verify = cursor.fetchone()
-                if verify:
-                    print(f"✅ User verification: User ID {verify[0]} confirmed in database")
-                else:
-                    print("❌ User verification: User NOT found in database after creation!")
-
+                conn.commit()
                 return user_id
             else:
                 conn.rollback()
-                print("❌ Failed to create user - no ID returned")
                 return None
 
         except Exception as e:
-            print(f"❌ Error creating user: {e}")
             if conn:
                 conn.rollback()
             return None
@@ -205,34 +180,23 @@ class PostgresDB:
                 conn.close()
 
     def authenticate_user(self, email: str, password: str) -> Optional[Dict]:
-        """Authenticate a user with detailed debugging"""
+        """Authenticate a user"""
         query = "SELECT id, username, email, password_hash FROM users WHERE email = %s AND is_active = TRUE"
         try:
-            print(f"🔐 Attempting to authenticate user: {email}")
-
             result = self.execute_query(query, (email,), fetch=True)
 
             if not result:
-                print(f"❌ No user found with email: {email}")
                 return None
 
             user_data = result[0]
             stored_hash = user_data['password_hash']
-            input_hash = self.hash_password(password)
-
-            print(f"🔐 Stored hash: {stored_hash}")
-            print(f"🔐 Input hash: {input_hash}")
-            print(f"🔐 Hashes match: {stored_hash == input_hash}")
 
             if self.verify_password(password, stored_hash):
-                print(f"✅ Authentication successful for user: {user_data['username']}")
                 return dict(user_data)
             else:
-                print(f"❌ Password verification failed for user: {user_data['username']}")
                 return None
 
         except Exception as e:
-            print(f"❌ Error authenticating user: {e}")
             return None
 
     def get_user_by_id(self, user_id: int) -> Optional[Dict]:
@@ -241,8 +205,7 @@ class PostgresDB:
         try:
             result = self.execute_query(query, (user_id,), fetch=True)
             return result[0] if result else None
-        except Exception as e:
-            print(f"❌ Error getting user: {e}")
+        except Exception:
             return None
 
     def update_password(self, user_id: int, new_password: str) -> bool:
@@ -252,8 +215,7 @@ class PostgresDB:
             password_hash = self.hash_password(new_password)
             rows_affected = self.execute_query(query, (password_hash, user_id))
             return rows_affected > 0
-        except Exception as e:
-            print(f"❌ Error updating password: {e}")
+        except Exception:
             return False
 
     def set_reset_token(self, email: str, token: str) -> bool:
@@ -263,8 +225,7 @@ class PostgresDB:
         try:
             rows_affected = self.execute_query(query, (token, expires, email))
             return rows_affected > 0
-        except Exception as e:
-            print(f"❌ Error setting reset token: {e}")
+        except Exception:
             return False
 
     def verify_reset_token(self, token: str) -> Optional[Dict]:
@@ -273,8 +234,7 @@ class PostgresDB:
         try:
             result = self.execute_query(query, (token,), fetch=True)
             return result[0] if result else None
-        except Exception as e:
-            print(f"❌ Error verifying reset token: {e}")
+        except Exception:
             return None
 
     def clear_reset_token(self, user_id: int) -> bool:
@@ -283,19 +243,14 @@ class PostgresDB:
         try:
             rows_affected = self.execute_query(query, (user_id,))
             return rows_affected > 0
-        except Exception as e:
-            print(f"❌ Error clearing reset token: {e}")
+        except Exception:
             return False
 
     # Project Management Methods
-    # Update the create_user_project method to accept redis_project_id
-    # In your database.py, update the create_user_project method:
-
     def create_user_project(self, user_id: int, project_name: str, project_type: str,
                            project_path: str, redis_project_id: str = None,
                            git_url: str = None) -> Optional[int]:
-        """Create a new project for user - WORKS FOR BOTH UPLOAD AND CLONE"""
-        # Find available port - SAME FOR BOTH
+        """Create a new project for user"""
         base_port = 3000
         max_port = 4000
 
@@ -313,7 +268,6 @@ class PostgresDB:
             if not port_number:
                 raise Exception("No available ports")
 
-            # Insert project - SAME STRUCTURE FOR BOTH
             insert_query = """
             INSERT INTO user_projects (user_id, project_name, project_type, project_path, redis_project_id, git_url, port_number)
             VALUES (%s, %s, %s, %s, %s, %s, %s)
@@ -326,13 +280,10 @@ class PostgresDB:
             )
 
             if result:
-                project_id = result[0]['id']
-                print(f"✅ Project created: ID={project_id}, Path={project_path}, Type={project_type}")
-                return project_id
+                return result[0]['id']
             return None
 
         except Exception as e:
-            print(f"❌ Error creating user project: {e}")
             return None
 
     def get_user_projects(self, user_id: int) -> List[Dict]:
@@ -345,8 +296,7 @@ class PostgresDB:
         """
         try:
             return self.execute_query(query, (user_id,), fetch=True)
-        except Exception as e:
-            print(f"❌ Error getting user projects: {e}")
+        except Exception:
             return []
 
     def get_project_by_id(self, project_id: int, user_id: int) -> Optional[Dict]:
@@ -359,11 +309,10 @@ class PostgresDB:
         try:
             result = self.execute_query(query, (project_id, user_id), fetch=True)
             return result[0] if result else None
-        except Exception as e:
-            print(f"❌ Error getting project: {e}")
+        except Exception:
             return None
 
-    # API Key Management Methods (updated for user_id)
+    # API Key Management Methods
     def save_api_key(self, user_id: int, provider: str, api_key: str) -> bool:
         """Save or update API key for a user and provider"""
         query = """
@@ -374,10 +323,8 @@ class PostgresDB:
         """
         try:
             self.execute_query(query, (user_id, provider, api_key, api_key))
-            print(f"✅ API key saved for user {user_id} - {provider}")
             return True
-        except Exception as e:
-            print(f"❌ Error saving API key: {e}")
+        except Exception:
             return False
 
     def update_project_redis_id(self, project_id: int, user_id: int, redis_project_id: str) -> bool:
@@ -390,9 +337,9 @@ class PostgresDB:
         try:
             rows_affected = self.execute_query(query, (redis_project_id, project_id, user_id))
             return rows_affected > 0
-        except Exception as e:
-            print(f"❌ Error updating Redis project ID: {e}")
+        except Exception:
             return False
+
     def get_api_key(self, user_id: int, provider: str) -> Optional[str]:
         """Get API key for a user and provider"""
         query = """
@@ -402,8 +349,7 @@ class PostgresDB:
         try:
             result = self.execute_query(query, (user_id, provider), fetch=True)
             return result[0]['api_key'] if result else None
-        except Exception as e:
-            print(f"❌ Error getting API key: {e}")
+        except Exception:
             return None
 
     def get_user_api_keys(self, user_id: int) -> List[Dict]:
@@ -411,14 +357,13 @@ class PostgresDB:
         query = "SELECT provider, created_at, updated_at FROM user_api_keys WHERE user_id = %s"
         try:
             return self.execute_query(query, (user_id,), fetch=True)
-        except Exception as e:
-            print(f"❌ Error getting user API keys: {e}")
+        except Exception:
             return []
 
-    # Conversation Methods (FIXED - user_id is first parameter)
+    # Conversation Methods
     def store_conversation(self, user_id: int, session_id: str, query: str, yaml_response: str,
                          model_used: str, provider: str = 'ollama') -> int:
-        """Store a conversation in the database - FIXED VERSION"""
+        """Store a conversation in the database"""
         query_sql = """
         INSERT INTO conversations (user_id, session_id, query, yaml_response, model_used, provider, created_at)
         VALUES (%s, %s, %s, %s, %s, %s, NOW())
@@ -426,11 +371,6 @@ class PostgresDB:
         """
 
         try:
-            print(f"💾 Storing conversation for user_id: {user_id}, session_id: {session_id}")
-            print(f"💾 Model: {model_used}, Provider: {provider}")
-            print(f"💾 Query preview: {query[:100]}...")
-            print(f"💾 YAML preview: {yaml_response[:100]}...")
-
             result = self.execute_query(
                 query_sql,
                 (user_id, session_id, query, yaml_response, model_used, provider),
@@ -438,14 +378,10 @@ class PostgresDB:
             )
 
             if result:
-                conversation_id = result[0]['id']
-                print(f"✅ Conversation stored successfully with ID: {conversation_id}")
-                return conversation_id
+                return result[0]['id']
             else:
-                print("❌ Failed to store conversation - no ID returned")
                 return None
-        except Exception as e:
-            print(f"❌ Error storing conversation: {e}")
+        except Exception:
             raise
 
     def get_conversation_history(self, user_id: int, session_id: str, limit: int = 10) -> List[Dict]:
@@ -459,8 +395,7 @@ class PostgresDB:
         """
         try:
             return self.execute_query(query, (user_id, session_id, limit), fetch=True)
-        except Exception as e:
-            print(f"❌ Error getting conversation history: {e}")
+        except Exception:
             return []
 
     def get_all_conversations(self, user_id: int, limit: int = 50) -> List[Dict]:
@@ -474,8 +409,7 @@ class PostgresDB:
         """
         try:
             return self.execute_query(query, (user_id, limit), fetch=True)
-        except Exception as e:
-            print(f"❌ Error getting all conversations: {e}")
+        except Exception:
             return []
 
     def update_application_results(self, conversation_id: int, results: Dict[str, Any]):
@@ -501,9 +435,5 @@ class PostgresDB:
         try:
             payload = jwt.decode(token, self.jwt_secret, algorithms=['HS256'])
             return payload.get('user_id')
-        except jwt.ExpiredSignatureError:
-            print("❌ Token expired")
-            return None
-        except jwt.InvalidTokenError:
-            print("❌ Invalid token")
+        except (jwt.ExpiredSignatureError, jwt.InvalidTokenError):
             return None
