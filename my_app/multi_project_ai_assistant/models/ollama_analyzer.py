@@ -54,7 +54,7 @@ class OllamaAnalyzer:
         """Analyze using local Ollama instance"""
         print("===========full prprprprpprprprpr")
         print(prompt)
-        prompt="hi"
+
         try:
             # Make the request to Ollama
             payload = {

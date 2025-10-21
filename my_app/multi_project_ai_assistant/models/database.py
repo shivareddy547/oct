@@ -36,17 +36,19 @@ class PostgresDB:
 
             # Create user_projects table
             cursor.execute("""
-                CREATE TABLE IF NOT EXISTS user_projects (
-                    id SERIAL PRIMARY KEY,
-                    user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
-                    project_name VARCHAR(100) NOT NULL,
-                    project_type VARCHAR(20) NOT NULL,
-                    project_path VARCHAR(500) NOT NULL,
-                    port_number INTEGER UNIQUE,
-                    created_at TIMESTAMP DEFAULT NOW(),
-                    UNIQUE(user_id, project_name)
-                )
-            """)
+                       CREATE TABLE IF NOT EXISTS user_projects (
+                           id SERIAL PRIMARY KEY,
+                           user_id INTEGER REFERENCES users(id) ON DELETE CASCADE,
+                           project_name VARCHAR(100) NOT NULL,
+                           project_type VARCHAR(20) NOT NULL,
+                           project_path VARCHAR(500) NOT NULL,
+                           redis_project_id VARCHAR(255),  -- NEW: Store Redis project ID
+                           port_number INTEGER UNIQUE,
+                           created_at TIMESTAMP DEFAULT NOW(),
+                           updated_at TIMESTAMP DEFAULT NOW(),
+                           UNIQUE(user_id, project_name)
+                       )
+                   """)
 
             # Create API keys table
             cursor.execute("""
@@ -285,8 +287,9 @@ class PostgresDB:
             return False
 
     # Project Management Methods
-    def create_user_project(self, user_id: int, project_name: str, project_type: str, project_path: str) -> Optional[int]:
-        """Create a new project for user"""
+    # Update the create_user_project method to accept redis_project_id
+    def create_user_project(self, user_id: int, project_name: str, project_type: str, project_path: str, redis_project_id: str = None) -> Optional[int]:
+        """Create a new project for user with Redis project ID support"""
         # Find available port (starting from 3000)
         base_port = 3000
         max_port = 4000
@@ -305,21 +308,26 @@ class PostgresDB:
             if not port_number:
                 raise Exception("No available ports")
 
+            # Updated insert query with redis_project_id
             insert_query = """
-            INSERT INTO user_projects (user_id, project_name, project_type, project_path, port_number)
-            VALUES (%s, %s, %s, %s, %s)
+            INSERT INTO user_projects (user_id, project_name, project_type, project_path, redis_project_id, port_number)
+            VALUES (%s, %s, %s, %s, %s, %s)
             RETURNING id
             """
-            result = self.execute_query(insert_query, (user_id, project_name, project_type, project_path, port_number), fetch=True)
+            result = self.execute_query(
+                insert_query,
+                (user_id, project_name, project_type, project_path, redis_project_id, port_number),
+                fetch=True
+            )
             return result[0]['id'] if result else None
         except Exception as e:
             print(f"❌ Error creating user project: {e}")
             return None
 
     def get_user_projects(self, user_id: int) -> List[Dict]:
-        """Get all projects for a user"""
+        """Get all projects for a user including Redis project ID"""
         query = """
-        SELECT id, project_name, project_type, project_path, port_number, created_at
+        SELECT id, project_name, project_type, project_path, redis_project_id, port_number, created_at
         FROM user_projects
         WHERE user_id = %s
         ORDER BY created_at DESC
@@ -331,9 +339,9 @@ class PostgresDB:
             return []
 
     def get_project_by_id(self, project_id: int, user_id: int) -> Optional[Dict]:
-        """Get specific project for user"""
+        """Get specific project for user including Redis project ID"""
         query = """
-        SELECT id, project_name, project_type, project_path, port_number
+        SELECT id, project_name, project_type, project_path, redis_project_id, port_number
         FROM user_projects
         WHERE id = %s AND user_id = %s
         """
@@ -361,6 +369,19 @@ class PostgresDB:
             print(f"❌ Error saving API key: {e}")
             return False
 
+    def update_project_redis_id(self, project_id: int, user_id: int, redis_project_id: str) -> bool:
+        """Update Redis project ID for an existing project"""
+        query = """
+        UPDATE user_projects
+        SET redis_project_id = %s, updated_at = NOW()
+        WHERE id = %s AND user_id = %s
+        """
+        try:
+            rows_affected = self.execute_query(query, (redis_project_id, project_id, user_id))
+            return rows_affected > 0
+        except Exception as e:
+            print(f"❌ Error updating Redis project ID: {e}")
+            return False
     def get_api_key(self, user_id: int, provider: str) -> Optional[str]:
         """Get API key for a user and provider"""
         query = """

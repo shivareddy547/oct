@@ -15,17 +15,13 @@ class MultiProjectAIAssistant:
         self.project_paths = project_paths
         self.redis_manager = MultiProjectRedisManager(redis_config)
         self.db = PostgresDB(db_config)
-        self.file_finder = MultiProjectFileFinder(project_paths)  # Pass project_paths here
+        self.file_finder = MultiProjectFileFinder(project_paths)
         self.context_builder = MultiProjectContextBuilder()
         self.ollama = OllamaAnalyzer()
         self.current_model = "qwen3-coder:480b-cloud"
 
         # Generate a unique project ID based on project paths
         self.project_id = self._generate_project_id()
-
-
-        # To:
-
 
         # Initialize projects in Redis
         self.redis_manager.store_project_structure(self.project_paths, self.project_id)
@@ -65,8 +61,8 @@ class MultiProjectAIAssistant:
         total_files = 0
 
         for project_path in self.project_paths:
-            project_type = self.file_finder.get_project_type(project_path)  # Fixed method name
-            files = self.file_finder.get_project_structure(project_path)    # This should work now
+            project_type = self.file_finder.get_project_type(project_path)
+            files = self.file_finder.get_project_structure(project_path)
             file_count = len(files)
             total_files += file_count
 
@@ -97,10 +93,11 @@ class MultiProjectAIAssistant:
             print(f"❌ Error getting available models: {e}")
             return ["qwen3-coder:480b-cloud", "codellama:latest", "llama3:8b"]
 
-    def process_query(self, query: str, session_id: str, use_auto_generate: bool = True) -> str:
-        """Process a user query and generate YAML response"""
+    def process_query(self, query: str, session_id: str, user_id: int = None, use_auto_generate: bool = True) -> str:
+        """Process a user query and generate YAML response - FIXED VERSION"""
         try:
             print(f"🔍 Processing query: {query}")
+            print(f"👤 User ID: {user_id}, Session ID: {session_id}")
 
             # Build context from all projects
             context = self.context_builder.build_context_from_projects(self.project_paths)
@@ -118,8 +115,11 @@ class MultiProjectAIAssistant:
             # Extract YAML from response
             yaml_response = self._extract_yaml_from_response(response)
 
-            # Store conversation in database
-            self.db.store_conversation(session_id, query, yaml_response, self.current_model, 'ollama')
+            # Store conversation in database with user_id
+            if user_id:
+                self.db.store_conversation(user_id, session_id, query, yaml_response, self.current_model, 'ollama')
+            else:
+                print("⚠️ No user_id provided, conversation not stored in database")
 
             return yaml_response
 
@@ -181,8 +181,8 @@ Focus on practical implementation across all relevant projects."""
 
         return response.strip()
 
-    def process_with_openai(self, query: str, model: str, api_key: str, session_id: str) -> str:
-        """Process query using OpenAI API"""
+    def process_with_openai(self, query: str, model: str, api_key: str, session_id: str, user_id: int = None) -> str:
+        """Process query using OpenAI API - FIXED VERSION"""
         try:
             # Build the context from projects
             context = self.context_builder.build_context_from_projects(self.project_paths)
@@ -264,8 +264,11 @@ Return ONLY valid YAML, no additional text or markdown formatting."""
             # Clean the response
             yaml_response = self._extract_yaml_from_response(yaml_response)
 
-            # Store in database
-            self.db.store_conversation(session_id, query, yaml_response, model, 'openai')
+            # Store in database with user_id
+            if user_id:
+                self.db.store_conversation(user_id, session_id, query, yaml_response, model, 'openai')
+            else:
+                print("⚠️ No user_id provided, conversation not stored in database")
 
             return yaml_response
 
@@ -273,8 +276,8 @@ Return ONLY valid YAML, no additional text or markdown formatting."""
             print(f"❌ Error with OpenAI API: {e}")
             raise
 
-    def process_with_openrouter(self, query: str, model: str, api_key: str, session_id: str) -> str:
-        """Process query using OpenRouter API"""
+    def process_with_openrouter(self, query: str, model: str, api_key: str, session_id: str, user_id: int = None) -> str:
+        """Process query using OpenRouter API - FIXED VERSION"""
         try:
             # Build the context from projects
             context = self.context_builder.build_context_from_projects(self.project_paths)
@@ -358,8 +361,11 @@ Return ONLY valid YAML, no additional text or markdown formatting."""
             # Clean the response
             yaml_response = self._extract_yaml_from_response(yaml_response)
 
-            # Store in database
-            self.db.store_conversation(session_id, query, yaml_response, model, 'openrouter')
+            # Store in database with user_id
+            if user_id:
+                self.db.store_conversation(user_id, session_id, query, yaml_response, model, 'openrouter')
+            else:
+                print("⚠️ No user_id provided, conversation not stored in database")
 
             return yaml_response
 
@@ -476,10 +482,83 @@ Return ONLY valid YAML, no additional text or markdown formatting."""
             with open(gemfile_path, 'w') as f:
                 f.write(f"source 'https://rubygems.org'\n\ngem '{gem_name}'")
 
-    def get_conversation_history(self, session_id: str, limit: int = 10) -> List[Dict]:
-        """Get conversation history for a session"""
-        return self.db.get_conversation_history(session_id, limit)
+    def get_conversation_history(self, user_id: int, session_id: str, limit: int = 10) -> List[Dict]:
+        """Get conversation history for a session - FIXED VERSION"""
+        return self.db.get_conversation_history(user_id, session_id, limit)
 
-    def get_all_conversations(self, limit: int = 50) -> List[Dict]:
-        """Get all conversations across all sessions"""
-        return self.db.get_all_conversations(limit)
+    # /media/shivareddy/E/oct-2025/15_evg/oct/my_app/multi_project_ai_assistant/services/ai_assistant.py
+
+    # Add these methods to your MultiProjectAIAssistant class:
+
+    def process_query_with_user_context(self, query: str, session_id: str, user_id: int = None, use_auto_generate: bool = True) -> str:
+        """Process a user query using only their stored Redis files"""
+        try:
+            print(f"🔍 Processing user query: {query}")
+            print(f"👤 User ID: {user_id}, Session ID: {session_id}")
+
+            if not user_id:
+                raise Exception("User ID is required for user-specific queries")
+
+            # Get user's projects from Redis
+            user_projects = self.redis_manager.get_user_projects(user_id)
+            if not user_projects:
+                raise Exception("No projects found for user")
+
+            print(f"📁 Found {len(user_projects)} projects for user {user_id}")
+
+            # Build context from user's projects in Redis
+            context = self._build_context_from_user_projects(user_id, user_projects)
+
+            if use_auto_generate:
+                prompt = self._build_auto_generate_prompt(query, context)
+            else:
+                prompt = self._build_standard_prompt(query, context)
+
+            # Get response from AI
+            response = self.ollama.analyze_with_prompt(prompt, self.current_model)
+
+            # Extract YAML from response
+            yaml_response = self._extract_yaml_from_response(response)
+
+            # Store conversation in database
+            self.db.store_conversation(user_id, session_id, query, yaml_response, self.current_model, 'ollama')
+
+            return yaml_response
+
+        except Exception as e:
+            print(f"❌ Error processing user query: {e}")
+            raise
+
+    def _build_context_from_user_projects(self, user_id: int, project_ids: List[str]) -> str:
+        """Build context from user's projects stored in Redis"""
+        context_parts = []
+
+        for project_id in project_ids:
+            # Get project structure
+            project_structure = self.redis_manager.get_project_structure(project_id, user_id)
+            if not project_structure:
+                continue
+
+            context_parts.append(f"PROJECT: {project_id}")
+            context_parts.append(f"Type: {project_structure.get('project_type', 'unknown')}")
+            context_parts.append(f"Root: {project_structure.get('project_root', 'unknown')}")
+            context_parts.append("Files:")
+
+            # Get project files
+            files = self.redis_manager.get_project_files(user_id, project_id)
+            for file_meta in files[:50]:  # Limit to 50 files per project for context
+                file_content = self.redis_manager.get_file_content(user_id, project_id, file_meta['path'])
+                if file_content:
+                    context_parts.append(f"--- {file_meta['path']} ---")
+                    context_parts.append(file_content[:1000])  # Limit content length
+
+            context_parts.append("")  # Empty line between projects
+
+        return "\n".join(context_parts)
+
+    def search_in_user_projects(self, user_id: int, query: str) -> List[Dict]:
+        """Search for content in user's Redis-stored projects"""
+        return self.redis_manager.search_in_user_projects(user_id, query)
+    def get_all_conversations(self, user_id: int, limit: int = 50) -> List[Dict]:
+        """Get all conversations across all sessions - FIXED VERSION"""
+        return self.db.get_all_conversations(user_id, limit)

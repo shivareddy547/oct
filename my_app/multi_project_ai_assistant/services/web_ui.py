@@ -17,6 +17,7 @@ from flask_socketio import SocketIO
 import os
 from openai import OpenAI  # Add this import if not already present
 
+
 class MultiProjectAIChatbotWebUI:
     def __init__(self, project_paths: List[str], redis_config: Dict, db_config: Dict,
                  ollama_url: str = 'http://localhost:11434', host: str = '0.0.0.0', port: int = 5000):
@@ -37,12 +38,18 @@ class MultiProjectAIChatbotWebUI:
         template_dir = os.path.join(static_dir, 'templates')
 
         self.app = Flask(__name__,
-                        static_folder=static_dir,
-                        template_folder=template_dir)
+                            static_folder=static_dir,
+                            template_folder=template_dir)
 
-        # Increase maximum file upload size to 500MB
-        self.app.config['MAX_CONTENT_LENGTH'] = 500 * 1024 * 1024  # 500MB
+        # REMOVE or INCREASE upload limits - set to None for no limit
+        self.app.config['MAX_CONTENT_LENGTH'] = None  # Remove file size limit
+        self.app.config['MAX_CONTENT_LENGTH'] = 1024 * 1024 * 1024  # 1GB
+
         self.app.config['SECRET_KEY'] = 'multi-project-ai-assistant-secret-key'
+
+        # Increase other limits
+        self.app.config['JSONIFY_PRETTYPRINT_REGULAR'] = False
+        self.app.config['SEND_FILE_MAX_AGE_DEFAULT'] = 0
 
         self.socketio = SocketIO(self.app, cors_allowed_origins="*", async_mode='threading')
 
@@ -204,6 +211,21 @@ class MultiProjectAIChatbotWebUI:
         """Setup Flask routes and SocketIO events"""
         import os
 
+        import os
+        from werkzeug.exceptions import RequestEntityTooLarge
+
+        # === ADD THIS AT THE BEGINNING OF setup_routes ===
+        @self.app.errorhandler(RequestEntityTooLarge)
+        def handle_file_too_large(e):
+            return jsonify({'success': False, 'error': 'File too large. Please try uploading smaller files or split your project.'}), 413
+
+        @self.app.before_request
+        def disable_content_length_check():
+            # Bypass content length checking for upload endpoint
+            if request.endpoint == 'api_upload_project':
+                # Disable the content length check for file uploads
+                pass
+        # === END OF ADDED CODE ===
         # Helper to get user from token
         def get_current_user():
             token = request.headers.get('Authorization', '').replace('Bearer ', '')
@@ -269,87 +291,6 @@ class MultiProjectAIChatbotWebUI:
                 })
             return jsonify({'authenticated': False})
 
-
-
-
-        @self.app.route('/api/upload_project', methods=['POST'])
-        def api_upload_project():
-            user = get_current_user()
-            if not user:
-                return jsonify({'success': False, 'error': 'Authentication required'})
-
-            from models.database import PostgresDB
-            db = PostgresDB(self.db_config)
-
-            project_name = None
-            project_dir = None
-
-            try:
-                # Get project name from form data
-                project_name = request.form.get('project_name')
-                project_type = request.form.get('project_type', 'generic')
-
-                if not project_name:
-                    return jsonify({'success': False, 'error': 'Project name is required'})
-
-                # Create user directory
-                user_dir = os.path.join(self.base_project_dir, str(user['id']))
-                os.makedirs(user_dir, exist_ok=True)
-
-                # Create project directory
-                project_dir = os.path.join(user_dir, project_name)
-
-                # Check if project already exists
-                if os.path.exists(project_dir):
-                    return jsonify({'success': False, 'error': 'Project already exists'})
-
-                os.makedirs(project_dir, exist_ok=True)
-
-                # Save uploaded files
-                if 'files' in request.files:
-                    files = request.files.getlist('files')
-                    total_files = len(files)
-                    processed_files = 0
-
-                    for file in files:
-                        if file.filename and file.filename.strip():  # Check if file is not empty
-                            # Get relative path from form data
-                            relative_path = file.filename
-                            file_path = os.path.join(project_dir, relative_path)
-
-                            # Create directory if needed
-                            os.makedirs(os.path.dirname(file_path), exist_ok=True)
-
-                            # Save file
-                            file.save(file_path)
-                            processed_files += 1
-
-                            # Log progress for large uploads
-                            if total_files > 10 and processed_files % 10 == 0:
-                                print(f"📁 Upload progress: {processed_files}/{total_files} files")
-
-                print(f"✅ Successfully uploaded {processed_files} files to {project_dir}")
-
-                # Store project in database
-                project_id = db.create_user_project(user['id'], project_name, project_type, project_dir)
-
-                if project_id:
-                    return jsonify({
-                        'success': True,
-                        'project_id': project_id,
-                        'message': f'Project "{project_name}" uploaded successfully with {processed_files} files'
-                    })
-                else:
-                    # Clean up on failure
-                    shutil.rmtree(project_dir, ignore_errors=True)
-                    return jsonify({'success': False, 'error': 'Failed to create project in database'})
-
-            except Exception as e:
-                print(f"❌ Error uploading project: {e}")
-                # Clean up on error
-                if project_dir and os.path.exists(project_dir):
-                    shutil.rmtree(project_dir, ignore_errors=True)
-                return jsonify({'success': False, 'error': f'Upload failed: {str(e)}'})
         # Add this with your other route definitions
         @self.app.errorhandler(413)
         def too_large(e):
@@ -744,39 +685,70 @@ class MultiProjectAIChatbotWebUI:
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
 
-        @self.app.route('/api/delete_project', methods=['POST'])
-        def api_delete_project():
+        # Add progress endpoint
+
+        @self.app.route('/api/upload_progress/<redis_project_id>')
+        def api_upload_progress(redis_project_id):
             user = get_current_user()
             if not user:
                 return jsonify({'success': False, 'error': 'Authentication required'})
 
-            from models.database import PostgresDB
-            db = PostgresDB(self.db_config)
-
             try:
-                data = request.get_json()
-                project_id = data.get('project_id')
+                # Get progress from Redis
+                if hasattr(self, 'assistant') and self.assistant:
+                    progress = self.assistant.redis_manager.get_upload_progress(user['id'], redis_project_id)
+                    if progress:
+                        return jsonify({'success': True, 'progress': progress})
 
-                # Get project info first
-                project = db.get_project_by_id(project_id, user['id'])
-                if not project:
-                    return jsonify({'success': False, 'error': 'Project not found'})
-
-                # Delete from database
-                query = "DELETE FROM user_projects WHERE id = %s AND user_id = %s"
-                rows_affected = db.execute_query(query, (project_id, user['id']))
-
-                if rows_affected > 0:
-                    # Delete project directory
-                    project_path = project['project_path']
-                    if os.path.exists(project_path):
-                        shutil.rmtree(project_path)
-                    return jsonify({'success': True})
-                else:
-                    return jsonify({'success': False, 'error': 'Failed to delete project'})
-
+                return jsonify({'success': True, 'progress': {
+                    'status': 'unknown',
+                    'percentage': 0,
+                    'message': 'Waiting for upload to start...'
+                }})
             except Exception as e:
                 return jsonify({'success': False, 'error': str(e)})
+        @self.app.route('/api/upload_project', methods=['POST'])
+        def api_upload_project():
+            user = get_current_user()
+            if not user:
+                return jsonify({'success': False, 'error': 'Authentication required'})
+
+            try:
+                # Get form data
+                project_name = request.form.get('project_name')
+                project_type = request.form.get('project_type', 'generic')
+
+                if not project_name:
+                    return jsonify({'success': False, 'error': 'Project name is required'})
+
+                # Get files
+                if 'files' not in request.files:
+                    return jsonify({'success': False, 'error': 'No files selected'})
+
+                files = request.files.getlist('files')
+                if not files or all(not f.filename for f in files):
+                    return jsonify({'success': False, 'error': 'No valid files selected'})
+
+                print(f"📁 Received {len(files)} files for upload")
+
+                # Generate unique project ID for Redis
+                redis_project_id = f"user_{user['id']}_{project_name}_{int(datetime.now().timestamp())}"
+
+                # Start background upload
+                task_id = self.upload_manager.start_upload_task(
+                    user['id'], project_name, project_type, files, redis_project_id
+                )
+
+                return jsonify({
+                    'success': True,
+                    'redis_project_id': redis_project_id,
+                    'message': 'Upload started in background',
+                    'task_id': task_id
+                })
+
+            except Exception as e:
+                print(f"❌ Error starting upload: {e}")
+                return jsonify({'success': False, 'error': f'Upload failed: {str(e)}'})
 
         # ---------------------------
         # SocketIO Event Handlers
@@ -843,7 +815,9 @@ class MultiProjectAIChatbotWebUI:
             emit('authentication_failed', {'error': 'Invalid token'}, room=session_id)
             print("❌ Socket authentication failed")
 
-        @self.socketio.on('send_message')
+        # In your socketio event handlers, update the send_message handler:
+
+        self.socketio.on('send_message')
         def handle_message(data):
             @copy_current_request_context
             def process_message():
@@ -865,47 +839,21 @@ class MultiProjectAIChatbotWebUI:
                     user_id = user_session['user_id']
 
                     print(f"📨 User {user_id} processing query: {query}")
-                    print(f"🤖 Using provider: {provider}, model: {model_name}")
 
-                    # Get API key from database if needed
-                    from models.database import PostgresDB
-                    db = PostgresDB(self.db_config)
-                    api_key = None
-                    if provider in ['openai', 'openrouter']:
-                        api_key = db.get_api_key(user_id, provider)
-                        if not api_key:
-                            emit('error', {
-                                'error': f'No API key found for {provider}. Please add it in your profile settings.'
-                            }, room=session_id)
-                            return
-                        print(f"🔑 Using stored API key for {provider}")
-
-                    # Set the model based on provider
-                    if provider == 'ollama':
-                        self.assistant.set_model(model_name)
-                        yaml_response = self.assistant.process_query(query, session_id, use_auto_generate=True)
-                    elif provider == 'openai':
-                        yaml_response = self.assistant.process_with_openai(query, model_name, api_key, session_id)
-                    elif provider == 'openrouter':
-                        yaml_response = self.assistant.process_with_openrouter(query, model_name, api_key, session_id)
-                    else:
-                        raise ValueError(f"Unsupported provider: {provider}")
+                    # Use user-specific query processing
+                    yaml_response = self.assistant.process_query_with_user_context(
+                        query, session_id, user_id, use_auto_generate=True
+                    )
 
                     user_session['current_yaml'] = yaml_response
-
-                    # Store conversation with user_id
-                    db.store_conversation(user_id, session_id, query, yaml_response, model_name, provider)
 
                     emit('assistant_response', {
                         'yaml_response': yaml_response,
                         'session_id': session_id,
                         'model_used': model_name,
-                        'provider_used': provider
+                        'provider_used': provider,
+                        'user_specific': True  # Flag to indicate user-specific results
                     }, room=session_id)
-
-                    conversations = db.get_all_conversations(user_id, 50)
-                    serialized_conversations = [self.serialize_conversation(conv) for conv in conversations]
-                    emit('all_conversations', {'conversations': serialized_conversations}, room=session_id)
 
                 except Exception as e:
                     print(f"❌ Error processing message: {e}")
@@ -1083,10 +1031,24 @@ class MultiProjectAIChatbotWebUI:
 
     def run(self):
         """Start the web server"""
+        # Increase Werkzeug limits for file uploads
+        from werkzeug.middleware.dispatcher import DispatcherMiddleware
+        from werkzeug.wrappers import Response
+
+        # This removes the content length limit for the entire app
+        app = self.app
+        app.wsgi_app = DispatcherMiddleware(app.wsgi_app, {
+            '/': app.wsgi_app
+        })
+
         print(f"🚀 Starting Multi-Project AI Assistant Web UI...")
         print(f"🌐 Web interface: http://{self.host}:{self.port}")
-        print("🗄️  PostgreSQL database active.")
-        print("🔐 User authentication enabled.")
-        print("📁 User projects directory:", self.base_project_dir)
+        print("📁 File upload limits: DISABLED (unlimited file size)")
 
-        self.socketio.run(self.app, host=self.host, port=self.port, debug=False, allow_unsafe_werkzeug=True)
+        self.socketio.run(
+            self.app,
+            host=self.host,
+            port=self.port,
+            debug=False,
+            allow_unsafe_werkzeug=True
+        )
