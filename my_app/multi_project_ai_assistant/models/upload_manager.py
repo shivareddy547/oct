@@ -19,7 +19,9 @@ class UploadManager:
     def _update_git_progress(self, user_id, redis_project_id, progress):
         """Update Git-specific progress in Redis - FIXED VERSION"""
         try:
-            if hasattr(self.webui, 'assistant') and self.webui.assistant:
+            redis_client = self._get_redis_client()
+
+            if redis_client:
                 progress_key = f"git_progress:user:{user_id}:project:{redis_project_id}"
 
                 # Ensure all required fields are present
@@ -29,14 +31,20 @@ class UploadManager:
                 progress.setdefault('terminal_output', [])
 
                 # Store in Redis
-                self.webui.assistant.redis_client.setex(
+                redis_client.setex(
                     progress_key,
                     900,  # 15 minutes expiry
                     json.dumps(progress)
                 )
 
-                # Debug output to see what's being stored
-                print(f"🔍 STORED Progress: {progress['status']} - {progress['percentage']}% - {progress['message']}")
+                print(f"📊 Progress stored: {progress['status']} - {progress['percentage']}%")
+            else:
+                # Fallback to in-memory storage
+                if not hasattr(self, 'progress_store'):
+                    self.progress_store = {}
+                progress_key = f"git_progress:user:{user_id}:project:{redis_project_id}"
+                self.progress_store[progress_key] = progress
+                print(f"⚠️ Using in-memory storage: {progress['status']} - {progress['percentage']}%")
 
         except Exception as e:
             print(f"❌ Error updating Git progress: {e}")
@@ -44,13 +52,23 @@ class UploadManager:
     def get_git_progress(self, user_id, redis_project_id):
         """Get Git-specific progress from Redis - FIXED VERSION"""
         try:
-            if hasattr(self.webui, 'assistant') and self.webui.assistant:
+            redis_client = self._get_redis_client()
+
+            # Check in-memory storage first
+            if hasattr(self, 'progress_store'):
                 progress_key = f"git_progress:user:{user_id}:project:{redis_project_id}"
-                progress_data = self.webui.assistant.redis_client.get(progress_key)
+                if progress_key in self.progress_store:
+                    progress = self.progress_store[progress_key]
+                    print(f"📊 Progress from memory: {progress.get('status', 'unknown')} - {progress.get('percentage', 0)}%")
+                    return progress
+
+            if redis_client:
+                progress_key = f"git_progress:user:{user_id}:project:{redis_project_id}"
+                progress_data = redis_client.get(progress_key)
 
                 if progress_data:
                     progress = json.loads(progress_data)
-                    print(f"🔍 RETRIEVED Progress: {progress.get('status', 'unknown')} - {progress.get('percentage', 0)}%")
+                    print(f"📊 Progress from Redis: {progress.get('status', 'unknown')} - {progress.get('percentage', 0)}%")
                     return progress
 
         except Exception as e:
@@ -64,6 +82,53 @@ class UploadManager:
             'terminal_output': ['Waiting for progress updates...']
         }
 
+    def _get_redis_client(self):
+        """Get Redis client from assistant or create direct connection"""
+        try:
+            # Try to get Redis client from assistant first
+            if (hasattr(self.webui, 'get_user_assistant') and
+                callable(self.webui.get_user_assistant)):
+
+                # Try to get assistant for the current user (you might need to adjust this)
+                assistant = self.webui.get_user_assistant(1, [])  # Adjust user_id as needed
+
+                if (assistant and
+                    hasattr(assistant, 'redis_manager') and
+                    assistant.redis_manager and
+                    hasattr(assistant.redis_manager, 'redis_client') and
+                    assistant.redis_manager.redis_client):
+
+                    print("✅ Using Redis client from assistant.redis_manager")
+                    return assistant.redis_manager.redis_client
+
+            # Fallback: direct connection
+            print("⚠️ No Redis client found via assistant, trying direct connection...")
+            try:
+                redis_config = {
+                    'host': 'localhost',
+                    'port': 6379,
+                    'db': 0
+                }
+                import redis
+                redis_client = redis.Redis(
+                    host=redis_config['host'],
+                    port=redis_config['port'],
+                    db=redis_config['db'],
+                    decode_responses=True,
+                    socket_connect_timeout=5
+                )
+                # Test connection
+                redis_client.ping()
+                print("✅ Direct Redis connection successful")
+                return redis_client
+            except Exception as e:
+                print(f"❌ Direct Redis connection failed: {e}")
+                return None
+
+        except Exception as e:
+            print(f"❌ Error getting Redis client: {e}")
+            return None
+
     def _add_terminal_output(self, user_id, redis_project_id, message):
         """Add message to terminal output with timestamp - FIXED VERSION"""
         try:
@@ -71,8 +136,8 @@ class UploadManager:
             terminal_line = f"[{timestamp}] {message}"
             print(f"📝 TERMINAL: {terminal_line}")  # Debug output
 
-            # Get current progress
-            current_progress = self.get_git_progress(user_id, redis_project_id)
+            # Get current progress WITHOUT updating it yet
+            current_progress = self.get_git_progress(user_id, redis_project_id).copy()
 
             # Update terminal output
             terminal_output = current_progress.get('terminal_output', [])
@@ -85,7 +150,15 @@ class UploadManager:
             # Update progress with new terminal output
             current_progress['terminal_output'] = terminal_output
 
-            # Save back to Redis
+            # Preserve other important fields
+            if 'percentage' not in current_progress:
+                current_progress['percentage'] = 0
+            if 'status' not in current_progress:
+                current_progress['status'] = 'processing'
+            if 'message' not in current_progress:
+                current_progress['message'] = 'Processing...'
+
+            # Save back to storage
             self._update_git_progress(user_id, redis_project_id, current_progress)
 
         except Exception as e:
@@ -248,7 +321,6 @@ class UploadManager:
                 'message': '🔍 Analyzing project structure...'
             })
             self._add_terminal_output(user_id, redis_project_id, "🔍 Analyzing project structure...")
-            time.sleep(1)  # Simulate analysis work
 
             project_type = self._detect_project_type(project_dir)
             file_count = self._count_files(project_dir)
@@ -277,24 +349,49 @@ class UploadManager:
                 raise Exception("Failed to create project in database")
 
             self._add_terminal_output(user_id, redis_project_id, "✅ Project saved to database!")
-            time.sleep(1)  # Simulate database work
 
-            # Index files - 95%
+            # Index files for AI search - 95%
             self._update_git_progress(user_id, redis_project_id, {
                 'status': 'indexing',
                 'percentage': 95,
-                'message': '📚 Indexing files for AI...'
+                'message': '📚 Indexing files for AI search...'
             })
-            self._add_terminal_output(user_id, redis_project_id, "📚 Indexing files for AI analysis...")
+            self._add_terminal_output(user_id, redis_project_id, "📚 Indexing files for AI search...")
 
-            assistant = self.webui.get_user_assistant(user_id, [project_dir])
-            if assistant:
-                assistant.redis_manager.store_project_structure(
-                    [project_dir], redis_project_id, user_id
-                )
+            # Get assistant and index files in Redis for AI search
+            indexed_count = 0
+            try:
+                if hasattr(self.webui, 'get_user_assistant') and callable(self.webui.get_user_assistant):
+                    assistant = self.webui.get_user_assistant(user_id, [project_dir])
+
+                    if (assistant and
+                        hasattr(assistant, 'redis_manager') and
+                        assistant.redis_manager):
+
+                        self._add_terminal_output(user_id, redis_project_id, "🔍 Starting Redis indexing with assistant...")
+
+                        # Use the Redis manager to index all project files
+                        indexed_data = assistant.redis_manager.store_project_structure(
+                            [project_dir], redis_project_id, user_id
+                        )
+
+                        # Count indexed files properly
+                        if indexed_data and 'projects' in indexed_data:
+                            for project_key, project_info in indexed_data['projects'].items():
+                                if 'files' in project_info:
+                                    indexed_count += len(project_info['files'])
+
+                        self._add_terminal_output(user_id, redis_project_id, f"✅ Indexed {indexed_count} files in Redis for AI search")
+                    else:
+                        self._add_terminal_output(user_id, redis_project_id, "⚠️ Assistant or Redis manager not available for indexing")
+                else:
+                    self._add_terminal_output(user_id, redis_project_id, "⚠️ get_user_assistant method not available")
+
+            except Exception as e:
+                self._add_terminal_output(user_id, redis_project_id, f"⚠️ Indexing error: {str(e)}")
+                # Don't fail the whole process if indexing fails
 
             self._add_terminal_output(user_id, redis_project_id, "✅ Files indexed successfully!")
-            time.sleep(1)  # Simulate indexing work
 
             # Complete - 100%
             self._update_git_progress(user_id, redis_project_id, {
@@ -303,12 +400,14 @@ class UploadManager:
                 'message': f'🎉 Project "{project_name}" ready with {file_count} files!',
                 'project_id': project_id,
                 'total_files': file_count,
-                'project_path': project_dir
+                'project_path': project_dir,
+                'indexed_files': indexed_count
             })
 
             self._add_terminal_output(user_id, redis_project_id, "🎉 Project setup completed successfully!")
             self._add_terminal_output(user_id, redis_project_id, f"📁 Location: {project_dir}")
             self._add_terminal_output(user_id, redis_project_id, f"📊 Total files: {file_count}")
+            self._add_terminal_output(user_id, redis_project_id, f"🔍 Indexed files: {indexed_count}")
 
             return True
 

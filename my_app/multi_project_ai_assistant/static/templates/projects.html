@@ -355,6 +355,8 @@
                 </div>
             </div>
 
+
+
             <!-- Examples section -->
             <div style="margin-top: 20px; padding: 15px; background: #f0f8ff; border-radius: 5px;">
                 <h6>📚 Examples:</h6>
@@ -374,21 +376,71 @@
     </div>
 </div>
 
+
+<script>
+    let pollInterval = null;
+
+    function startProgressPolling(projectId) {
+        console.log("🚀 Started polling for project:", projectId);
+
+        async function pollProgress() {
+            try {
+                const res = await fetch(`/api/git_progress/${projectId}`);
+                const data = await res.json();
+
+                if (!data.success) return;
+
+                // Update UI elements
+                const bar = document.getElementById('progress-bar');
+                const status = document.getElementById('progress-status');
+                const output = document.getElementById('terminal-output');
+
+                if (bar) bar.style.width = `${data.percentage || 0}%`;
+                if (status) status.textContent = `Status: ${data.status}`;
+                if (output && Array.isArray(data.terminal_output)) {
+                    output.textContent = data.terminal_output.join('\n');
+                    output.scrollTop = output.scrollHeight; // auto-scroll terminal
+                }
+
+                // Stop polling when finished or error
+                if (data.status === 'completed' || data.status === 'error') {
+                    console.log("🛑 Stopping poll: process finished");
+                    clearInterval(pollInterval);
+                    pollInterval = null;
+                }
+
+            } catch (err) {
+                console.error("Error fetching progress:", err);
+                clearInterval(pollInterval);
+                pollInterval = null;
+            }
+        }
+
+        // Start polling every 2 seconds
+        pollProgress();
+        pollInterval = setInterval(pollProgress, 2000);
+    }
+</script>
+
+
 <script>
     let selectedProjectType = null;
     let selectedFiles = [];
     let currentUpload = null;
 
+    let currentCloneInterval = null; // Add this line
+
     // Enhanced Git clone function
     // Replace your cloneFromGit function with this version
+    // Enhanced Git clone function with proper completion handling
     async function cloneFromGit() {
         const gitUrl = document.getElementById('git-url').value.trim();
         const projectName = document.getElementById('git-project-name').value.trim();
         const gitUsername = document.getElementById('git-username').value.trim();
         const gitToken = document.getElementById('git-token').value.trim();
-        const status = document.getElementById('git-clone-status');
+        const statusDiv = document.getElementById('git-clone-status');
         const progressDiv = document.getElementById('git-clone-progress');
-        const cloneBtn = document.getElementById('clone-btn-text');
+        const cloneBtn = document.querySelector('button[onclick="cloneFromGit()"]');
         const terminalOutput = document.getElementById('terminal-output');
         const cloneStats = document.getElementById('clone-stats');
 
@@ -403,16 +455,23 @@
             return;
         }
 
+        // Clear any existing interval
+        if (currentCloneInterval) {
+            clearInterval(currentCloneInterval);
+            currentCloneInterval = null;
+        }
+
         // Reset and show UI
         progressDiv.style.display = 'block';
         cloneStats.style.display = 'none';
         document.getElementById('git-progress-fill').style.width = '0%';
         document.getElementById('git-clone-status-text').textContent = '🚀 Starting Git clone...';
         terminalOutput.innerHTML = '<div class="terminal-line">> 🚀 Initializing Git clone process...</div>';
-        cloneBtn.textContent = 'Cloning...';
+        cloneBtn.disabled = true;
+        cloneBtn.innerHTML = '<span>🔄 Cloning...</span>';
+        statusDiv.innerHTML = '';
 
         let redisProjectId = null;
-        let progressInterval = null;
         let cloneCompleted = false;
         let startTime = Date.now();
 
@@ -433,6 +492,8 @@
             if (gitUsername) payload.git_username = gitUsername;
             if (gitToken) payload.git_token = gitToken;
 
+            console.log('Starting Git clone with payload:', { ...payload, git_token: '***' });
+
             const response = await fetch('/api/clone_project', {
                 method: 'POST',
                 headers: {
@@ -443,103 +504,176 @@
             });
 
             if (!response.ok) {
-                throw new Error(`Clone failed to start: ${response.status}`);
+                throw new Error(`Clone failed to start: ${response.status} ${response.statusText}`);
             }
 
             const result = await response.json();
+            console.log('Clone start response:', result);
 
             if (!result.success) {
                 throw new Error(result.error || 'Clone failed to start');
             }
 
             redisProjectId = result.redis_project_id;
+            console.log('Git clone started with ID:', redisProjectId);
 
-            // Start Git-specific progress polling
-            progressInterval = setInterval(async () => {
+            // Start progress polling
+            currentCloneInterval = setInterval(async () => {
                 try {
+                    console.log('Fetching progress for:', redisProjectId);
                     const progressResponse = await fetch(`/api/git_progress/${redisProjectId}`, {
                         headers: {
                             'Authorization': `Bearer ${token}`
                         }
                     });
 
-                    if (progressResponse.ok) {
-                        const progressData = await progressResponse.json();
-                        if (progressData.success && progressData.progress) {
-                            const progress = progressData.progress;
+                    if (!progressResponse.ok) {
+                        console.log('Progress API response not OK:', progressResponse.status);
+                        return;
+                    }
 
-                            // Update progress bar
-                            document.getElementById('git-progress-fill').style.width = progress.percentage + '%';
-                            document.getElementById('git-clone-status-text').textContent = progress.message;
+                    const progressData = await progressResponse.json();
+                    console.log('Progress API response:', progressData);
 
-                            // Update terminal output
-                            if (progress.terminal_output) {
-                                terminalOutput.innerHTML = progress.terminal_output
-                                    .map(line => `<div class="terminal-line">${line}</div>`)
-                                    .join('');
-                                terminalOutput.scrollTop = terminalOutput.scrollHeight;
-                            }
+                    if (progressData.success) {
+                        // Update UI with progress data - FIXED: Use progressData directly, not progressData.progress
+                        updateProgressUI(progressData, result.project_name || 'Unknown Project');
 
-                            // Update file count when available
-                            if (progress.total_files > 0) {
-                                document.getElementById('file-count').textContent = progress.total_files;
-                                cloneStats.style.display = 'block';
-                            }
-
-                            // Check if completed
-                            if (progress.status === 'completed') {
-                                cloneCompleted = true;
-                                clearInterval(progressInterval);
-                                clearInterval(timerInterval);
-
-                                showGitStatus(
-                                    `✅ Project "${result.project_name}" cloned successfully with ${progress.total_files} files!`,
-                                    'success'
-                                );
-                                loadUserProjects();
-
-                                setTimeout(() => {
-                                    progressDiv.style.display = 'none';
-                                    resetGitForm();
-                                    cloneBtn.textContent = '🚀 Clone Repository';
-                                }, 5000);
-                            }
-
-                            // Check if error
-                            if (progress.status === 'error') {
-                                clearInterval(progressInterval);
-                                clearInterval(timerInterval);
-                                cloneBtn.textContent = '🚀 Clone Repository';
-                                cloneStats.style.display = 'block';
-                                showGitStatus('❌ ' + progress.message, 'error');
-                            }
+                        // Handle completion
+                        if (progressData.status === 'completed' && !cloneCompleted) {
+                            handleCloneCompletion(progressData, result.project_name || 'Unknown Project');
+                            cloneCompleted = true;
                         }
+
+                        // Handle errors
+                        if (progressData.status === 'error' && !cloneCompleted) {
+                            handleCloneError(progressData);
+                            cloneCompleted = true;
+                        }
+                    } else {
+                        console.log('Progress API returned success: false', progressData.error);
                     }
                 } catch (error) {
-                    console.error('Error fetching Git progress:', error);
+                    console.error('Error fetching progress:', error);
                 }
-            }, 1500); // Poll every 1.5 seconds
+            }, 2000); // Poll every 2 seconds
 
-            // Set timeout for 30 minutes for large repositories
+            // Set timeout for 10 minutes
             setTimeout(() => {
-                if (!cloneCompleted && progressInterval) {
-                    clearInterval(progressInterval);
+                if (!cloneCompleted && currentCloneInterval) {
+                    console.log('Clone timeout after 10 minutes');
+                    clearInterval(currentCloneInterval);
                     clearInterval(timerInterval);
-                    showGitStatus('⏰ Clone timeout after 30 minutes - Very large repository', 'error');
-                    terminalOutput.innerHTML += '<div class="terminal-line" style="color: orange;">> ⏰ Operation timed out after 30 minutes</div>';
-                    progressDiv.style.display = 'none';
-                    cloneBtn.textContent = '🚀 Clone Repository';
+                    showGitStatus('⏰ Clone timeout after 10 minutes - Very large repository', 'error');
+                    terminalOutput.innerHTML += '<div class="terminal-line terminal-warning">> ⏰ Operation timed out after 10 minutes</div>';
+                    cloneBtn.disabled = false;
+                    cloneBtn.innerHTML = '<span>🚀 Clone Repository</span>';
+                    currentCloneInterval = null;
                 }
-            }, 1800000); // 30 minutes
+            }, 600000); // 10 minutes
 
         } catch (error) {
             console.error('Git clone error:', error);
-            if (progressInterval) clearInterval(progressInterval);
+            if (currentCloneInterval) {
+                clearInterval(currentCloneInterval);
+                currentCloneInterval = null;
+            }
             if (timerInterval) clearInterval(timerInterval);
             showGitStatus('❌ Clone failed: ' + error.message, 'error');
             progressDiv.style.display = 'none';
-            cloneBtn.textContent = '🚀 Clone Repository';
+            cloneBtn.disabled = false;
+            cloneBtn.innerHTML = '<span>🚀 Clone Repository</span>';
         }
+    }
+
+    function updateProgressUI(progressData, projectName) {
+        // Update progress bar
+        const progressFill = document.getElementById('git-progress-fill');
+        const statusText = document.getElementById('git-clone-status-text');
+
+        progressFill.style.width = progressData.percentage + '%';
+        statusText.textContent = progressData.message || 'Processing...';
+
+        // Update terminal output
+        if (progressData.terminal_output && progressData.terminal_output.length > 0) {
+            const terminalOutput = document.getElementById('terminal-output');
+            terminalOutput.innerHTML = progressData.terminal_output
+                .map(line => {
+                    let className = 'terminal-line';
+                    if (line.includes('✅') || line.includes('🎉')) className += ' terminal-success';
+                    else if (line.includes('❌') || line.includes('💥')) className += ' terminal-error';
+                    else if (line.includes('⚠️')) className += ' terminal-warning';
+                    else if (line.includes('🔍') || line.includes('📁')) className += ' terminal-info';
+                    return `<div class="${className}">${line}</div>`;
+                })
+                .join('');
+            terminalOutput.scrollTop = terminalOutput.scrollHeight;
+        }
+
+        // Update file count when available
+        if (progressData.total_files > 0) {
+            document.getElementById('file-count').textContent = progressData.total_files;
+            document.getElementById('clone-stats').style.display = 'block';
+        }
+    }
+
+    function handleCloneCompletion(progressData, projectName) {
+        console.log('Clone completed successfully!');
+
+        const progressDiv = document.getElementById('git-clone-progress');
+        const progressFill = document.getElementById('git-progress-fill');
+        const statusText = document.getElementById('git-clone-status-text');
+        const cloneBtn = document.querySelector('button[onclick="cloneFromGit()"]');
+
+        // Clear interval
+        if (currentCloneInterval) {
+            clearInterval(currentCloneInterval);
+            currentCloneInterval = null;
+        }
+
+        // Update UI
+        progressFill.style.width = '100%';
+        statusText.textContent = '🎉 Clone completed! Refreshing page...';
+        cloneBtn.disabled = false;
+        cloneBtn.innerHTML = '<span>🚀 Clone Repository</span>';
+
+        // Show success message
+        showGitStatus(
+            `✅ Project "${projectName}" cloned successfully with ${progressData.total_files || 0} files!`,
+            'success'
+        );
+
+        // Refresh projects list immediately
+        loadUserProjects();
+
+        // Refresh the entire page after 3 seconds to show the new project
+        setTimeout(() => {
+            console.log('Refreshing page to show new project...');
+            window.location.reload();
+        }, 3000);
+    }
+
+    function handleCloneError(progressData) {
+        console.log('Clone error detected:', progressData.message);
+
+        const progressFill = document.getElementById('git-progress-fill');
+        const statusText = document.getElementById('git-clone-status-text');
+        const cloneBtn = document.querySelector('button[onclick="cloneFromGit()"]');
+
+        // Clear interval
+        if (currentCloneInterval) {
+            clearInterval(currentCloneInterval);
+            currentCloneInterval = null;
+        }
+
+        // Update UI for error
+        progressFill.style.width = '100%';
+        progressFill.style.background = '#dc3545';
+        statusText.textContent = '❌ Clone failed';
+        cloneBtn.disabled = false;
+        cloneBtn.innerHTML = '<span>🚀 Clone Repository</span>';
+
+        showGitStatus('❌ ' + (progressData.message || 'Clone failed'), 'error');
     }
 
     // Helper functions
@@ -560,6 +694,29 @@
     function showGitStatus(message, type) {
         const status = document.getElementById('git-clone-status');
         status.innerHTML = `<div class="status-message ${type}">${message}</div>`;
+
+        // Auto-clear success messages after 8 seconds
+        if (type === 'success') {
+            setTimeout(() => {
+                status.innerHTML = '';
+            }, 8000);
+        }
+    }
+
+    // Add this helper function for better error handling
+    async function fetchWithTimeout(resource, options = {}) {
+        const { timeout = 8000 } = options;
+
+        const controller = new AbortController();
+        const id = setTimeout(() => controller.abort(), timeout);
+
+        const response = await fetch(resource, {
+            ...options,
+            signal: controller.signal
+        });
+
+        clearTimeout(id);
+        return response;
     }
 
     // Auto-detect project name from Git URL

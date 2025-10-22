@@ -21,6 +21,7 @@ my_api_app/vendor/bundle/
 
 # Storage (uploads and SQLite databases)
 /storage/*
+/user_projects/*
 !/storage/.keep
 /tmp/storage/*
 !/tmp/storage/

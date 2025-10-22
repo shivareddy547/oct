@@ -542,34 +542,44 @@ class MultiProjectAIChatbotWebUI:
 
 
 
-        @self.app.route('/api/git_progress/<project_id>')
-        def api_git_progress(project_id):
-            """Get Git clone progress for a project - PUBLIC VERSION"""
+        @self.app.route('/api/git_progress/<redis_project_id>')
+        def get_git_progress(redis_project_id):
+            """Get Git clone progress - SIMPLIFIED VERSION"""
             try:
-                # Extract user_id from project_id format: user_1_my-blue-app_1761064983
-                user_id_match = re.match(r'user_(\d+)_', project_id)
-                if not user_id_match:
+                # Extract user_id from redis_project_id format: "user_{user_id}_{project_name}_{timestamp}"
+                # Example: "user_1_my-project_1234567890"
+                parts = redis_project_id.split('_')
+                if len(parts) >= 2 and parts[0] == 'user':
+                    user_id = parts[1]
+                else:
                     return jsonify({
-                        'status': 'error',
-                        'percentage': 0,
-                        'message': 'Invalid project ID format',
-                        'terminal_output': ['Invalid project ID']
-                    })
+                        'success': False,
+                        'error': 'Invalid project ID format'
+                    }), 400
 
-                user_id = int(user_id_match.group(1))
-                progress = self.upload_manager.get_git_progress(user_id, project_id)
+                print(f"🔍 Getting progress for user {user_id}, project {redis_project_id}")
 
-                return jsonify(progress)
+                # Get progress from upload manager
+                progress = self.upload_manager.get_git_progress(user_id, redis_project_id)
+                print(f"📊 Progress retrieved: {progress.get('status', 'unknown')} - {progress.get('percentage', 0)}%")
 
-            except Exception as e:
-                print(f"❌ Error getting Git progress: {e}")
+                # Return the progress data
                 return jsonify({
-                    'status': 'error',
-                    'percentage': 0,
-                    'message': f'Error: {str(e)}',
-                    'terminal_output': [f'Error: {str(e)}']
+                    'success': True,
+                    'status': progress.get('status', 'unknown'),
+                    'percentage': progress.get('percentage', 0),
+                    'message': progress.get('message', ''),
+                    'terminal_output': progress.get('terminal_output', []),
+                    'total_files': progress.get('total_files', 0),
+                    'project_path': progress.get('project_path', '')
                 })
 
+            except Exception as e:
+                print(f"❌ Error in get_git_progress API: {str(e)}")
+                return jsonify({
+                    'success': False,
+                    'error': str(e)
+                }), 500
 
         @self.app.route('/api/delete_project', methods=['POST'])
         def api_delete_project():
